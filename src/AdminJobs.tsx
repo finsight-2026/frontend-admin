@@ -90,9 +90,13 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
     const query = new URLSearchParams({ page: String(page) })
     for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value)
     void read<Page>(root + '?' + query, abort.signal).then((result) => {
-      if (!abort.signal.aborted) setData(result)
+      if (abort.signal.aborted) return
+      setError(undefined)
+      setData(result)
     }).catch((failure: Error) => {
-      if (!abort.signal.aborted) setError(failure.message)
+      if (abort.signal.aborted) return
+      setData(undefined)
+      setError(failure.message)
     })
     return () => abort.abort()
   }, [filters, page, refresh, listRefresh])
