@@ -11,6 +11,7 @@ type Job = {
   overdue: boolean; deadlineWarning?: boolean; stage?: string
 }
 type Page = { items: Job[]; total: number }
+const pageSize = 20
 
 const kinds: Record<string, string> = {
   CAMPAIGN: '서비스 안내 캠페인', BULK_TAG: '일괄 태그', APP_EXPORT: '사용자 내보내기',
@@ -66,6 +67,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
   const [filters, setFilters] = useState<Filters>({})
   const [page, setPage] = useState(1)
   const [refresh, setRefresh] = useState(0)
+  const [listRefresh, setListRefresh] = useState(0)
   const [data, setData] = useState<Page>()
   const [error, setError] = useState<string>()
   const [selected, setSelected] = useState(jobId)
@@ -86,25 +88,52 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
 
   useEffect(() => {
     const abort = new AbortController()
-    const query = new URLSearchParams({ page: String(page) })
+    const query = new URLSearchParams({ page: String(page), size: String(pageSize) })
     for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value)
     void read<Page>(root + '?' + query, abort.signal).then((result) => {
-      if (!abort.signal.aborted) setData(result)
+      if (abort.signal.aborted) return
+      setError(undefined)
+      const lastPage = Math.max(1, Math.ceil(result.total / pageSize))
+      if (page > lastPage) {
+        setData(undefined)
+        setPage(lastPage)
+        return
+      }
+      setData(result)
     }).catch((failure: Error) => {
-      if (!abort.signal.aborted) setError(failure.message)
+      if (abort.signal.aborted) return
+      setData(undefined)
+      setError(failure.message)
     })
     return () => abort.abort()
-  }, [filters, page, refresh])
+  }, [filters, page, refresh, listRefresh])
 
   useEffect(() => {
     if (!selected) return
     const abort = new AbortController()
-    void read<Job>(root + '/' + selected, abort.signal).then((result) => {
-      if (!abort.signal.aborted) setDetail(result)
-    }).catch((failure: Error) => {
-      if (!abort.signal.aborted) setDetailError(failure.message)
-    })
-    return () => abort.abort()
+    let timer: number | undefined
+    let wasPending = false
+    async function load() {
+      try {
+        const result = await read<Job>(root + '/' + selected, abort.signal)
+        if (abort.signal.aborted) return
+        setDetail(result)
+        if (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(result.kind) &&
+          ['QUEUED', 'RUNNING'].includes(result.status)) {
+          wasPending = true
+          timer = window.setTimeout(() => void load(), 5_000)
+        } else if (wasPending) {
+          setListRefresh((value) => value + 1)
+        }
+      } catch (failure) {
+        if (!abort.signal.aborted) setDetailError(failure instanceof Error ? failure.message : '작업을 불러오지 못했습니다.')
+      }
+    }
+    void load()
+    return () => {
+      abort.abort()
+      window.clearTimeout(timer)
+    }
   }, [selected, refresh])
 
   function reload() {
@@ -177,7 +206,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
       </Form>
       {error && <Alert type="error" showIcon title={error} />}
       <Table<Job> rowKey="id" dataSource={data?.items ?? []} loading={!data && !error} scroll={{ x: 920 }}
-        pagination={{ current: page, pageSize: 20, total: data?.total ?? 0, showSizeChanger: false, onChange: (next) => {
+        pagination={{ current: page, pageSize, total: data?.total ?? 0, showSizeChanger: false, onChange: (next) => {
           setData(undefined)
           setError(undefined)
           setPage(next)
@@ -198,7 +227,8 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
     </Space>
     <Modal title="작업 상세" open={selected != null} onCancel={() => { setSelected(undefined); setCancelReason(undefined); setRetryReason(undefined) }}
       footer={null} width={680}>
-      {detailError ? <Alert type="error" title={detailError} /> : !detail ? <Typography.Text>불러오는 중</Typography.Text> :
+      {detailError ? <Alert type="error" title={detailError}
+        action={<Button size="small" onClick={reload}>다시 조회</Button>} /> : !detail ? <Typography.Text>불러오는 중</Typography.Text> :
         <Space orientation="vertical" style={{ display: 'flex' }}>
         <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[
           { key: 'id', label: '작업 ID', span: 'filled', children: <Typography.Text copyable>{detail.id}</Typography.Text> },

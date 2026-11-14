@@ -508,6 +508,113 @@ test('news drafts attach only the validated upload id', async ({ page }) => {
   expect((await saved).postDataJSON()).toMatchObject({ fields: { mediaId: id } })
 })
 
+test('job detail exposes the CSV download when a queued export completes', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  let completed = false
+  let reads = 0
+  const job = () => ({
+    id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS',
+    status: completed ? 'COMPLETED' : 'QUEUED', processed: completed ? 1 : 0,
+    total: 1, retryCount: 0, overdue: false,
+  })
+  await page.route('**/api/v1/admin/jobs?*', (route) => route.fulfill({
+    json: { items: [job()], page: 1, size: 20, total: 1 },
+  }))
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => {
+    reads++
+    return route.fulfill({ json: job() })
+  })
+  await page.goto('/admin/jobs?id=' + adminId)
+  const dialog = page.getByRole('dialog', { name: '작업 상세' })
+  const download = dialog.getByRole('button', { name: '사용자 목록 CSV 다운로드' })
+  await expect(dialog.getByText('접수', { exact: true })).toBeVisible()
+  await expect(download).toHaveCount(0)
+  completed = true
+  await page.clock.runFor(5_100)
+  await expect(download).toBeVisible()
+  const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: adminId, exact: true }) })
+  await expect(row).toContainText('완료')
+  await expect(row).toContainText('1 / 1')
+  const completedReads = reads
+  await page.clock.runFor(15_000)
+  expect(reads).toBe(completedReads)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+})
+
+test('job monitor returns to the last page when the completed export leaves the active filter', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  let completed = false
+  const queued = { id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS', status: 'QUEUED',
+    processed: 0, total: 1, retryCount: 0, overdue: false }
+  const firstPage = Array.from({ length: 20 }, (_, index) => ({ ...queued, id: `${targetUser.slice(0, -2)}${index + 10}` }))
+  const requests: string[] = []
+  await page.route('**/api/v1/admin/jobs?*', (route) => {
+    const params = new URL(route.request().url()).searchParams
+    const requestedPage = params.get('page')
+    if (completed) requests.push(`${params.get('status')}:${requestedPage}`)
+    return route.fulfill({ json: { items: requestedPage === '1' ? firstPage : completed ? [] : [queued], total: completed ? 20 : 21 } })
+  })
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => route.fulfill({
+    json: completed ? { ...queued, status: 'COMPLETED', processed: 1 } : queued,
+  }))
+  await page.goto('/admin/jobs')
+  await page.getByRole('combobox', { name: '상태' }).click()
+  await page.getByTitle('접수', { exact: true }).click()
+  await page.getByRole('button', { name: '조회', exact: true }).click()
+  await page.getByTitle('2', { exact: true }).click()
+  const openJob = page.getByRole('button', { name: adminId, exact: true })
+  await openJob.click()
+  const detail = page.getByRole('dialog', { name: '작업 상세' })
+  await expect(detail.getByText('접수', { exact: true })).toBeVisible()
+  completed = true
+  await page.clock.runFor(5_100)
+  await expect(detail.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+  await expect.poll(() => requests).toEqual(['QUEUED:2', 'QUEUED:1'])
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  await expect(page.getByRole('button', { name: firstPage[0].id, exact: true })).toBeVisible()
+  await expect(openJob).toHaveCount(0)
+})
+
+test('job monitor clears stale results after the completion refresh fails', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  let completed = false
+  let failedRefresh = false
+  const job = () => ({
+    id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS', status: completed ? 'COMPLETED' : 'QUEUED',
+    processed: completed ? 1 : 0, total: 1, retryCount: 0, overdue: false,
+  })
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => route.fulfill({ json: job() }))
+  await page.route('**/api/v1/admin/jobs?*', (route) => {
+    if (completed && !failedRefresh) {
+      failedRefresh = true
+      return route.fulfill({ status: 503 })
+    }
+    return route.fulfill({ json: { items: [job()], total: 1 } })
+  })
+  await page.goto('/admin/jobs')
+  const open = page.getByRole('button', { name: adminId, exact: true })
+  await open.click()
+  const dialog = page.getByRole('dialog', { name: '작업 상세' })
+  await expect(dialog.getByText('접수', { exact: true })).toBeVisible()
+  completed = true
+  await page.clock.runFor(5_100)
+  await expect(dialog.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+  await expect.poll(() => failedRefresh).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(open).toHaveCount(0)
+  await page.getByRole('button', { name: '목록 갱신' }).click()
+  await expect(open).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('row').filter({ has: open })).toContainText('1 / 1')
+})
+
 test('job monitor retries only eligible failures and reuses the key after an uncertain response', async ({ page }, testInfo) => {
   await fixture(page, ['ANALYST'])
   const id = '2f671c72-e054-4221-8fd2-5a70dc090671'
