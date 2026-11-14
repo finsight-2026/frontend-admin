@@ -23,24 +23,11 @@
 
 	root * {args[1]}
 	handle /assets/* {
-		@current_asset file
-		handle @current_asset {
-			header Cache-Control "public, max-age=31536000, immutable"
-			file_server
-		}
-		@previous_asset file {
+		root * {args[2]}
+		@published_asset file {
 			root {args[2]}
 		}
-		handle @previous_asset {
-			root * {args[2]}
-			header Cache-Control "public, max-age=31536000, immutable"
-			file_server
-		}
-		@older_asset file {
-			root {args[3]}
-		}
-		handle @older_asset {
-			root * {args[3]}
+		handle @published_asset {
 			header Cache-Control "public, max-age=31536000, immutable"
 			file_server
 		}
@@ -63,9 +50,9 @@
 https://localhost:18443 {
 	bind 127.0.0.1
 	tls internal
-	import finsight_admin 127.0.0.1:18081 /data/finsight-admin/staging/current /data/finsight-admin/staging/previous /data/finsight-admin/staging/older
+	import finsight_admin 127.0.0.1:18081 /data/finsight-admin/staging/current /data/finsight-admin/staging/shared
 }
 
 admin.finsight.life {
-	import finsight_admin 127.0.0.1:18080 /data/finsight-admin/production/current /data/finsight-admin/production/previous /data/finsight-admin/production/older
+	import finsight_admin 127.0.0.1:18080 /data/finsight-admin/production/current /data/finsight-admin/production/shared
 }

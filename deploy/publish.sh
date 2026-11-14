@@ -27,13 +27,22 @@ if [[ ! -d "$root/releases/$release" ]]; then
     mv "$pending/dist" "$root/releases/$release"
 fi
 
+install -d -m 755 "$root/shared/assets"
+for asset in "$root/releases"/*/assets/*; do
+    [[ -f "$asset" && ! -L "$asset" ]] || continue
+    target="$root/shared/assets/${asset##*/}"
+    if [[ -e "$target" && ! "$asset" -ef "$target" ]]; then
+        if ! cmp -s "$asset" "$target"; then
+            printf '해시 자산 이름이 충돌합니다: %s\n' "${asset##*/}" >&2
+            exit 1
+        fi
+    elif [[ ! -e "$target" ]]; then
+        ln -- "$asset" "$target"
+    fi
+done
+
 previous=$(readlink "$root/current" || true)
 if [[ -n "$previous" && "$previous" != "releases/$release" ]]; then
-    older=$(readlink "$root/previous" || true)
-    if [[ -n "$older" && "$older" != "releases/$release" ]]; then
-        ln -s "$older" "$pending/older"
-        mv -Tf "$pending/older" "$root/older"
-    fi
     ln -s "$previous" "$pending/previous"
     mv -Tf "$pending/previous" "$root/previous"
 fi
