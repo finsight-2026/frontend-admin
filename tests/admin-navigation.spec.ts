@@ -917,3 +917,51 @@ test('news edition selects an exact article revision and submits its expected ed
   await page.screenshot({ path: testInfo.outputPath('BO-03-news-edition-version.png'), animations: 'disabled' })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
+
+for (const status of [404, 409]) {
+  test(`filtered CSV replaces an invalid preview after HTTP ${status}`, async ({ page }) => {
+    await fixture(page, ['OPERATOR'])
+    await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
+      items: [], page: 1, size: 20, total: 2,
+    } }))
+    let previews = 0
+    const submissions: Array<{ previewId: string; key: string | undefined }> = []
+    await page.route('**/api/v1/admin/exports/masked-users/preview', (route) => {
+      const first = ++previews === 1
+      return route.fulfill({ json: {
+        previewId: first ? targetUser : adminId,
+        total: 2, eligible: first ? 2 : 1, excluded: first ? 0 : 1,
+        expiresAt: '2026-11-14T01:00:00Z',
+      } })
+    })
+    await page.route('**/api/v1/admin/exports/masked-users', (route) => {
+      submissions.push({
+        previewId: route.request().postDataJSON().previewId,
+        key: route.request().headers()['idempotency-key'],
+      })
+      return submissions.length === 1 ? route.fulfill({ status }) : route.fulfill({
+        status: 202, json: { id: adminId, status: 'QUEUED', format: 'CSV' },
+      })
+    })
+
+    await page.goto('/admin/users?includeNoDiagnosis=true')
+    const preview = page.getByRole('button', { name: '필터 전체 사용자 CSV' })
+    const confirm = page.getByRole('button', { name: '확정된 대상으로 CSV 요청' })
+    await preview.click()
+    await expect(page.getByText('CSV 내보내기 2명 · 제외 0명')).toBeVisible()
+    await confirm.click()
+    await expect(page.getByText('CSV 대상이 변경되었거나 확인 시간이 지났어요. 대상을 다시 확인해 주세요.')).toBeVisible()
+    await expect(confirm).toHaveCount(0)
+    expect(submissions.map(({ previewId }) => previewId)).toEqual([targetUser])
+
+    await preview.click()
+    await expect(page.getByText('CSV 내보내기 1명 · 제외 1명')).toBeVisible()
+    expect(submissions).toHaveLength(1)
+    await confirm.click()
+    await expect(page).toHaveURL(new RegExp('/admin/jobs\\?id=' + adminId + '$'))
+    expect(submissions.map(({ previewId }) => previewId)).toEqual([targetUser, adminId])
+    expect(submissions[0].key).toBeTruthy()
+    expect(submissions[1].key).toBeTruthy()
+    expect(submissions[1].key).not.toBe(submissions[0].key)
+  })
+}
