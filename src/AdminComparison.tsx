@@ -1,4 +1,5 @@
 import { adminFetch } from './adminFetch'
+import { accountWrite } from './adminAccountApi'
 import { Alert, Button, Card, Descriptions, Form, Grid, Input, Modal, Select, Space, Table } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 
@@ -9,6 +10,7 @@ type Snapshot = {
   metrics: Record<string, Cell | Record<string, Cell>>
 }
 type Cell = { n: number; mean: number }
+type MinimumChange = { type: string; minimum: number | null; reason: string; expectedVersion: number }
 type Settings = { type: string; minimum: number | null; version: number }
 type Publication = { id: string; snapshotId: string; type: string; status: string; startsAt: string; endsAt: string }
 const metricLabels: Record<string, string> = {
@@ -46,13 +48,22 @@ function PublicMetrics({ preview, keys }: { preview: Preview; keys?: string[] })
   </section>
 }
 
+class ComparisonError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function decode<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
   const messages: Record<number, string> = {
     401: '다시 로그인해주세요.', 403: '집계를 처리할 권한이 없습니다.',
     409: '집계 상태가 바뀌었습니다. 새로고침해주세요.', 422: '집계 유형과 기간을 확인해주세요.',
   }
-  throw new Error(messages[response.status] ?? '집계 요청을 완료하지 못했습니다.')
+  throw new ComparisonError(messages[response.status] ?? '집계 요청을 완료하지 못했습니다.', response.status)
 }
 
 async function write<T>(url: string, body: object, method = "POST", key?: string) {
@@ -74,6 +85,9 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
   const [selected, setSelected] = useState<string>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [pendingMinimum, setPendingMinimum] = useState<MinimumChange>()
+  const [code, setCode] = useState('')
+  const [minimumError, setMinimumError] = useState<string>()
   const [pendingPublication, setPendingPublication] = useState<PendingPublication>()
   const [previewState, setPreviewState] = useState<{ id: string; data?: Preview }>()
   const lastTransition = useRef<{ fingerprint: string; key: string } | undefined>(undefined)
@@ -137,6 +151,33 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
     }
   }
 
+  async function saveMinimum(change: MinimumChange, otp?: string) {
+    setBusy(true)
+    setError(undefined)
+    setMinimumError(undefined)
+    const { type, ...body } = change
+    try {
+      if (otp) await accountWrite('/auth/reauth', 'POST', { code: otp })
+      await write<Settings>(path + '/settings/' + type, body, 'PATCH')
+      setPendingMinimum(undefined)
+      await refresh()
+    } catch (failure) {
+      if (failure instanceof ComparisonError && failure.status === 428) {
+        setPendingMinimum(change)
+      } else if (failure instanceof ComparisonError && failure.status === 409) {
+        setPendingMinimum(undefined)
+        report(failure)
+      } else if (otp) {
+        setMinimumError(failure instanceof Error ? failure.message : '표본 기준을 저장하지 못했습니다.')
+      } else {
+        report(failure)
+      }
+    } finally {
+      setBusy(false)
+      setCode('')
+    }
+  }
+
   function transition(id: string, body: object) {
     const fingerprint = JSON.stringify([id, body])
     if (lastTransition.current?.fingerprint !== fingerprint) {
@@ -162,23 +203,15 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
         )}
         <Button disabled={busy} onClick={() => { setError(undefined); void refresh().catch(report) }}>목록 새로고침</Button>
         {supervisor && (
-          <Form layout="vertical" onFinish={async (values: { type: string; minimum?: string; reason: string }) => {
+          <Form layout="vertical" onFinish={(values: { type: string; minimum?: string; reason: string }) => {
             const config = settings.find((item) => item.type === values.type)
             if (!config) return
-            setBusy(true)
-            setError(undefined)
-            try {
-              await write<Settings>(path + '/settings/' + config.type, {
-                minimum: values.minimum ? Number(values.minimum) : null,
-                reason: values.reason,
-                expectedVersion: config.version,
-              }, 'PATCH')
-              await refresh()
-            } catch (error) {
-              report(error)
-            } finally {
-              setBusy(false)
-            }
+            void saveMinimum({
+              type: config.type,
+              minimum: values.minimum ? Number(values.minimum) : null,
+              reason: values.reason,
+              expectedVersion: config.version,
+            })
           }}>
             <div className="admin-user-filters">
               <Form.Item name="type" label="표본 기준 유형" rules={[{ required: true }]}>
@@ -193,6 +226,22 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
             <Button htmlType="submit" loading={busy}>표본 기준 저장</Button>
           </Form>
         )}
+        {pendingMinimum && <Modal open title="표본 기준 변경 재인증"
+          okText="재인증 후 저장" cancelText="취소" confirmLoading={busy}
+          okButtonProps={{ disabled: !/^\d{6}$/.test(code) }}
+          onCancel={() => {
+            if (busy) return
+            setPendingMinimum(undefined)
+            setMinimumError(undefined)
+            setCode('')
+          }}
+          onOk={() => void saveMinimum(pendingMinimum, code)}>
+          <Space orientation="vertical" style={{ display: 'flex' }}>
+            {minimumError && <Alert type="error" title={minimumError} />}
+            <Input aria-label="인증 앱의 6자리 코드" autoComplete="one-time-code" inputMode="numeric"
+              maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} />
+          </Space>
+        </Modal>}
         <p>현재 공개·예약 {publications.length}건</p>
         {publications.map((item) => (
           <div key={item.id}>
