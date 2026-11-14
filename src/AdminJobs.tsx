@@ -42,14 +42,25 @@ const date = (value?: string) => value ? time.format(new Date(value)) : '—'
 const options = (labels: Record<string, string>) => Object.entries(labels).map(([value, label]) => ({ value, label }))
 const root = '/api/v1/admin/jobs'
 
+class JobReadError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function read<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await adminFetch(path, { signal, cache: 'no-store' })
   if (response.ok) return response.json() as Promise<T>
-  if (response.status === 401) throw new Error('다시 로그인해주세요.')
-  if (response.status === 403) throw new Error('작업 조회 권한이 없습니다.')
-  if (response.status === 404) throw new Error('조회 가능한 작업 기록이 없습니다.')
-  if (response.status === 422) throw new Error('조회 기간은 최대 366일입니다. 시작일과 종료일을 확인해주세요.')
-  throw new Error('작업을 불러오지 못했습니다.')
+  const messages: Record<number, string> = {
+    401: '다시 로그인해주세요.',
+    403: '작업 조회 권한이 없습니다.',
+    404: '조회 가능한 작업 기록이 없습니다.',
+    422: '조회 기간은 최대 366일입니다. 시작일과 종료일을 확인해주세요.',
+  }
+  throw new JobReadError(messages[response.status] ?? '작업을 불러오지 못했습니다.', response.status)
 }
 
 function status(job: Job) {
@@ -117,6 +128,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
       try {
         const result = await read<Job>(root + '/' + selected, abort.signal)
         if (abort.signal.aborted) return
+        setDetailError(undefined)
         setDetail(result)
         if (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(result.kind) &&
           ['QUEUED', 'RUNNING'].includes(result.status)) {
@@ -126,7 +138,14 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
           setListRefresh((value) => value + 1)
         }
       } catch (failure) {
-        if (!abort.signal.aborted) setDetailError(failure instanceof Error ? failure.message : '작업을 불러오지 못했습니다.')
+        if (abort.signal.aborted) return
+        const transient = failure instanceof TypeError || (failure instanceof JobReadError && failure.status >= 500)
+        if (wasPending && transient) {
+          setDetailError('작업 상태를 불러오지 못했습니다. 잠시 후 다시 조회합니다.')
+          timer = window.setTimeout(() => void load(), 5_000)
+          return
+        }
+        setDetailError(failure instanceof Error ? failure.message : '작업을 불러오지 못했습니다.')
       }
     }
     void load()

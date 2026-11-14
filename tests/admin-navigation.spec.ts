@@ -579,6 +579,38 @@ test('job monitor returns to the last page when the completed export leaves the 
   await expect(openJob).toHaveCount(0)
 })
 
+test('pending export detail resumes polling after a temporary outage', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  const detailEndpoint = '**/api/v1/admin/jobs/' + adminId
+  let reads = 0
+  let completedListReads = 0
+  const job = { id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS',
+    status: 'QUEUED', processed: 0, total: 1, retryCount: 0, overdue: false }
+  const completed = { ...job, status: 'COMPLETED', processed: 1 }
+  await page.route(detailEndpoint, (route) => {
+    reads++
+    if (reads === 2) return route.fulfill({ status: 503 })
+    return route.fulfill({ json: reads > 2 ? completed : job })
+  })
+  await page.route('**/api/v1/admin/jobs?*', (route) => {
+    if (reads > 2) completedListReads++
+    return route.fulfill({ json: { items: [reads > 2 ? completed : job], total: 1 } })
+  })
+  await page.goto('/admin/jobs')
+  await page.getByRole('button', { name: adminId, exact: true }).click()
+  const modal = page.getByRole('dialog', { name: '작업 상세' })
+  await expect(modal.getByText('접수', { exact: true })).toBeVisible()
+  await page.clock.runFor(5_100)
+  await expect(modal.getByText('작업 상태를 불러오지 못했습니다. 잠시 후 다시 조회합니다.')).toBeVisible()
+  await expect(modal.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toHaveCount(0)
+  await page.clock.runFor(5_100)
+  await expect(modal.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+  await expect(modal.getByRole('alert')).toHaveCount(0)
+  await expect.poll(() => completedListReads).toBe(1)
+  expect(reads).toBe(3)
+})
+
 test('job monitor clears stale results after the completion refresh fails', async ({ page }) => {
   await page.clock.install()
   await fixture(page, ['OPERATOR'])
