@@ -589,6 +589,27 @@ test('CRM reports device outcomes and retries confirmed failures once', async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
 
+test('CRM cancellation explains which notifications can be stopped', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  const campaign = { id: adminId, name: '서비스 점검', status: 'SENDING', version: 2, userIds: [targetUser] }
+  await page.route('**/api/v1/admin/campaigns', (route) => route.fulfill({ json: [campaign] }))
+  await page.route('**/api/v1/admin/campaigns/' + adminId + '/cancel', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ expectedVersion: 2, reason: '발송 중지 요청' })
+    campaign.status = 'CANCEL_REQUESTED'
+    return route.fulfill({ json: { ...campaign, version: 3 } })
+  })
+  await page.goto('/admin/campaigns')
+  await page.getByRole('button', { name: '취소 요청', exact: true }).click()
+  const modal = page.getByRole('dialog', { name: '캠페인 취소 요청' })
+  await expect(modal.getByText(/푸시 공급자가 접수한 알림은 회수할 수 없습니다/)).toBeVisible()
+  const submit = modal.getByRole('button', { name: '취소 요청', exact: true })
+  await expect(submit).toBeDisabled()
+  await modal.getByRole('textbox', { name: '취소 사유' }).fill('발송 중지 요청')
+  await submit.click()
+  await expect(modal).toBeHidden()
+  await expect(page.getByRole('row').filter({ hasText: campaign.name })).toContainText('취소 요청')
+})
+
 test('CRM preview distinguishes inbox and push estimates before confirmation', async ({ page }, testInfo) => {
   await fixture(page, ['OPERATOR'])
   const id = '2f671c72-e054-4221-8fd2-5a70dc090673'

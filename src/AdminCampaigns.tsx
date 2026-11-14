@@ -330,8 +330,14 @@ export default function AdminCampaigns({ initialTarget }: { initialTarget?: Camp
     <Modal open={canceling != null} title="캠페인 취소 요청" confirmLoading={busy}
       okButtonProps={{ disabled: !reason.trim() }} onOk={cancel} onCancel={() => setCanceling(undefined)}
       okText="취소 요청" cancelText="돌아가기">
-      <Input.TextArea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} placeholder="취소 사유" />
-      {error && <Alert type="error" title={error} />}
+      <Space orientation="vertical" style={{ display: 'flex' }}>
+        {canceling?.status !== 'SCHEDULED' && <Typography.Text>
+          대기 중인 발송을 중지합니다. 이미 앱 알림함에 등록되었거나 푸시 공급자가 접수한 알림은 회수할 수 없습니다.
+        </Typography.Text>}
+        <Input.TextArea aria-label="취소 사유" value={reason} onChange={(event) => setReason(event.target.value)}
+          maxLength={500} placeholder="취소 사유" />
+        {error && <Alert type="error" title={error} />}
+      </Space>
     </Modal>
     <Modal open={deliveryCampaign != null} title={(deliveryCampaign?.name ?? '') + ' 처리 결과'}
       onCancel={() => { if (!busy) setDeliveryCampaign(undefined) }} footer={null} width={760}>
