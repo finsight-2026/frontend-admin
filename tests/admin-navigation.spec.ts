@@ -43,6 +43,33 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('dashboard polls every 30 seconds without reporting user activity', async ({ page }) => {
+  await page.clock.install()
+  const paths = await fixture(page, ['ANALYST'])
+  let reads = 0
+  let expired = false
+  await page.route((url) => url.pathname === '/api/v1/admin/dashboard', async (route) => {
+    reads++
+    if (expired) {
+      await route.fulfill({ status: 401 })
+    } else {
+      await route.fulfill({ json: {} })
+    }
+  })
+  await page.goto('/admin/dashboard')
+  await expect(page.getByRole('button', { name: '새로고침' })).toBeVisible()
+  await expect(page.getByText('집계를 불러오는 중입니다.')).toBeHidden()
+  const initialReads = reads
+  expect(initialReads).toBeGreaterThan(0)
+  expired = true
+  await page.clock.runFor(28_000)
+  expect(reads).toBe(initialReads)
+  await page.clock.runFor(3_000)
+  await expect(page.getByText('세션이 만료되었습니다. 다시 로그인해주세요.')).toBeVisible()
+  expect(reads).toBe(initialReads + 1)
+  expect(paths).not.toContain('/auth/activity')
+})
+
 test('filtered user export sends the applied filters and opens its job', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
