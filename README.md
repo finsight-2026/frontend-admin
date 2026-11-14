@@ -27,7 +27,7 @@ Chrome을 쓰지 않는 환경에서는 `npx playwright install chromium` 후 `n
 
 ### V70 이전 백엔드로 복구
 
-V71 적용 후 V70 이하의 백엔드로 되돌릴 때는 백엔드를 중지한 상태에서 `DELETE FROM campaign_target_preview WHERE purpose='MASKED_EXPORT';`를 실행한다. 이전 백엔드는 미리보기의 용도를 검사하지 않는다. 기존 CRM 미리보기와 이미 접수된 CSV 작업은 유지된다.
+V72에서 CSV 미리보기를 전용 테이블로 옮기고 V71에 생성한 미확정 CSV 미리보기를 만료시킨다. 해당 미리보기는 다시 생성한다. V71까지만 적용한 상태에서 V70 이하의 백엔드로 되돌릴 때는 백엔드를 중지한 뒤 `DELETE FROM campaign_target_preview WHERE purpose='MASKED_EXPORT';`를 실행한다. 기존 CRM 미리보기와 이미 접수된 CSV 작업은 유지된다.
 
 V70의 스키마는 이전 운영 이미지에서도 읽을 수 있다. 이전 이미지의 작업 처리기는 `MASKED_USERS`를 지원하지 않으므로, 해당 버전으로 복구할 때는 새 백엔드가 작업을 받거나 처리하지 않도록 중지한 뒤 같은 환경의 DB에서 아래 트랜잭션을 실행한다. 대기 중인 마스킹 CSV 작업과 발급된 다운로드 링크는 사용할 수 없게 된다. 다른 종류의 내보내기 데이터는 이 트랜잭션의 적용 범위에 들어가지 않는다.
 
