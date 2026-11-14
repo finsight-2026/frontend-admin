@@ -25,9 +25,19 @@ compose=(docker compose --project-name "finsight-$environment" -f compose.yaml)
 pending=$(mktemp runtime.env.XXXXXXXX)
 trap 'if [[ -f "$pending" ]]; then unlink "$pending"; fi' EXIT
 sed '/^FINSIGHT_ADMIN_ORIGIN=/d; /^[[:space:]]*$/d' runtime.env >"$pending"
-if ! grep -q '^FINSIGHT_ADMIN_MFA_KEY=' "$pending"; then
-    printf 'FINSIGHT_ADMIN_MFA_KEY=%s\n' "$(openssl rand -hex 32)" >>"$pending"
-fi
+for name in FINSIGHT_ADMIN_MFA_KEY FINSIGHT_ADMIN_NOTE_KEY FINSIGHT_ADMIN_PII_KEY; do
+    if grep -q "^${name}=" "$pending"; then
+        if [[ $(grep -c "^${name}=" "$pending") != 1 ]] ||
+            ! grep -Eq "^${name}=[0-9a-fA-F]{64}$" "$pending"; then
+            printf '관리자 암호화 키 설정을 확인해 주세요 (%s).\n' "$name" >&2
+            exit 1
+        fi
+    else
+        key=$(openssl rand -hex 32)
+        printf '%s=%s\n' "$name" "$key" >>"$pending"
+        unset key
+    fi
+done
 printf 'FINSIGHT_ADMIN_ORIGIN=%s\n' "$origin" >>"$pending"
 if cmp -s runtime.env "$pending"; then
     exit 0
