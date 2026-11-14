@@ -6,7 +6,7 @@ import AdminUserNotes from './AdminUserNotes'
 import AdminPiiPanel from './AdminPiiPanel'
 import { TagCatalog, UserTagEditor, type Tag } from './AdminUserTags'
 import { userIdPattern, userListQuery, type CampaignDraftTarget, type CampaignTargetPreview, type UserFilters } from './adminNavigation'
-import { accountWrite } from './adminAccountApi'
+import { AdminAccountError, accountWrite } from './adminAccountApi'
 
 type User = {
   id: string
@@ -74,8 +74,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     const filters: UserFilters = { ...Object.fromEntries(query), includeNoDiagnosis: query.has('includeNoDiagnosis') }
     return { filters, page }
   }, [search])
-  const [loadedList, setList] = useState<{ search: string; value: Page }>()
-  const list = loadedList?.search === search ? loadedList.value : undefined
+  const [loadedList, setList] = useState<{ search: string; revision: number; value: Page }>()
   const [loadedDetail, setDetail] = useState<Detail>()
   const [selectedDiagnosis, setDiagnosisId] = useState<{ owner: string; id: string }>()
   const [loadedDiagnosis, setDiagnosis] = useState<Diagnosis>()
@@ -87,13 +86,22 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const [tags, setTags] = useState<Tag[]>([])
   const [tagRevision, setTagRevision] = useState(0)
   const [dataRevision, setDataRevision] = useState(0)
+  const list = loadedList?.search === search && loadedList.revision === dataRevision ? loadedList.value : undefined
   const [checked, setChecked] = useState<string[]>([])
   const [targetLoading, setTargetLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportPreviewLoading, setExportPreviewLoading] = useState(false)
+  const [exportPreview, setExportPreview] = useState<{ search: string; revision: number; data: CampaignTargetPreview }>()
+  const csvPreview = exportPreview?.search === search && exportPreview.revision === dataRevision
+    ? exportPreview.data : undefined
   const exportAttempt = useRef<{ fingerprint: string; key: string }>(undefined)
-  const [targetPreview, setTargetPreview] = useState<{ search: string; data: CampaignTargetPreview }>()
-  const campaignPreview = targetPreview?.search === search ? targetPreview?.data : undefined
-  const refreshUsers = useCallback(() => setDataRevision((value) => value + 1), [])
+  const [targetPreview, setTargetPreview] = useState<{ search: string; revision: number; data: CampaignTargetPreview }>()
+  const campaignPreview = targetPreview?.search === search && targetPreview.revision === dataRevision
+    ? targetPreview.data : undefined
+  const refreshUsers = useCallback(() => {
+    setLoading(true)
+    setDataRevision((value) => value + 1)
+  }, [])
   const [selectionSearch, setSelectionSearch] = useState(search)
   const currentSelection = selectionSearch === search ? checked.filter((id) => list?.items.some((user) => user.id === id)) : []
 
@@ -120,9 +128,12 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
       if (value === true) params.set(key, 'true')
     }
     get<Page>('?' + params, abort.signal).then((value) => {
-      if (!abort.signal.aborted) setList({ search, value })
+      if (!abort.signal.aborted) setList({ search, revision: dataRevision, value })
     }).catch((error: Error) => {
-      if (!abort.signal.aborted) setError(error.message)
+      if (!abort.signal.aborted) {
+        setList(undefined)
+        setError(error.message)
+      }
     }).finally(() => { if (!abort.signal.aborted) setLoading(false) })
     return () => abort.abort()
   }, [filters, page, search, dataRevision, selected])
@@ -153,7 +164,21 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     onSelect(id)
   }
 
-  async function exportUsers(selection: { userIds: string[] } | { filter: UserFilters }) {
+  async function previewExport() {
+    setError(undefined)
+    setExportPreview(undefined)
+    setExportPreviewLoading(true)
+    try {
+      const data = await accountWrite<CampaignTargetPreview>('/exports/masked-users/preview', 'POST', filters)
+      setExportPreview({ search, revision: dataRevision, data })
+    } catch {
+      setError('CSV 대상을 확인하지 못했어요. 다시 시도해 주세요.')
+    } finally {
+      setExportPreviewLoading(false)
+    }
+  }
+
+  async function exportUsers(selection: { userIds: string[] } | { previewId: string }) {
     setExporting(true)
     setError(undefined)
     const fingerprint = JSON.stringify(selection)
@@ -164,8 +189,13 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
       const job = await accountWrite<{ id: string }>('/exports/masked-users', 'POST', selection, exportAttempt.current.key)
       exportAttempt.current = undefined
       onOpenJob(job.id)
-    } catch {
-      setError('사용자 목록 내보내기를 접수하지 못했어요. 대상과 권한을 다시 확인해 주세요.')
+    } catch (failure) {
+      if ('previewId' in selection && failure instanceof AdminAccountError && [404, 409].includes(failure.status)) {
+        setExportPreview(undefined)
+        setError('CSV 대상이 변경되었거나 확인 시간이 지났어요. 대상을 다시 확인해 주세요.')
+      } else {
+        setError('사용자 목록 내보내기를 접수하지 못했어요. 대상과 권한을 다시 확인해 주세요.')
+      }
     } finally {
       setExporting(false)
     }
@@ -180,8 +210,11 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     setError(undefined)
     setLoading(true)
     setChecked([])
-    if (userListQuery(query.toString()).toString() === search.replace(/^\?/, '')) refreshUsers()
-    else onSelect(undefined, query)
+    setExportPreview(undefined)
+    setTargetPreview(undefined)
+    const next = userListQuery(query.toString())
+    if (next.toString() === userListQuery(search).toString()) refreshUsers()
+    else onSelect(undefined, next)
   }
 
   return (
@@ -235,7 +268,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
         <Space orientation="vertical" style={{ display: 'flex' }}>
           {operator && <TagCatalog tags={tags} changed={() => {
             setTagRevision((value) => value + 1)
-            setDataRevision((value) => value + 1)
+            refreshUsers()
           }} />}
           <Form<UserFilters> key={search} layout="vertical" initialValues={filters} onFinish={(values) => applyFilters(values, 1)}>
             <div className="admin-user-filters">
@@ -251,7 +284,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               <Form.Item name="to" label="종료일 (KST)"><Input type="date" /></Form.Item>
             </div>
             <Form.Item name="includeNoDiagnosis" valuePropName="checked"><Checkbox>완료 진단 없는 사용자 포함</Checkbox></Form.Item>
-            <Button htmlType="submit" type="primary" loading={loading}>조회</Button>
+            <Button htmlType="submit" type="primary" aria-label="조회" aria-busy={loading} loading={loading}>조회</Button>
           </Form>
           {operator && <AdminBulkTagPanel contextKey={JSON.stringify([filters, page, currentSelection])} loading={loading}
             tags={tags} selected={currentSelection} filter={Object.fromEntries(
@@ -261,8 +294,8 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
           {operator && <Space wrap>
             <Button disabled={loading || exporting || currentSelection.length === 0}
               onClick={() => void exportUsers({ userIds: currentSelection })}>선택한 사용자 CSV</Button>
-            <Button disabled={loading || exporting || !list?.total}
-              onClick={() => void exportUsers({ filter: filters })}>필터 전체 사용자 CSV</Button>
+            <Button disabled={loading || exporting || !list?.total} loading={exportPreviewLoading}
+              onClick={() => void previewExport()}>필터 전체 사용자 CSV</Button>
             <Button disabled={loading || currentSelection.length === 0} onClick={() => onStartCampaign(currentSelection)}>
               선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
             </Button>
@@ -272,7 +305,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               setTargetLoading(true)
               try {
                 const data = await accountWrite<CampaignTargetPreview>('/campaigns/target-preview', 'POST', filters)
-                setTargetPreview({ search, data })
+                setTargetPreview({ search, revision: dataRevision, data })
               } catch {
                 setError('필터 전체 CRM 대상을 확인하지 못했어요. 다시 시도해 주세요.')
               } finally {
@@ -280,6 +313,14 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               }
             }}>필터 전체 CRM 대상 확인</Button>
           </Space>}
+          {operator && csvPreview && <Alert type="info" showIcon
+            title={`CSV 내보내기 ${csvPreview.eligible}명 · 제외 ${csvPreview.excluded}명`}
+            description={`확인 기한 ${formatDate(csvPreview.expiresAt)} (KST)`}
+            action={<Space wrap>
+              <Button disabled={csvPreview.eligible === 0} loading={exporting}
+                onClick={() => void exportUsers({ previewId: csvPreview.previewId })}>확정된 대상으로 CSV 요청</Button>
+              <Button disabled={exporting} onClick={() => setExportPreview(undefined)}>닫기</Button>
+            </Space>} />}
           {operator && campaignPreview && <Alert type="info" showIcon
             title={`검색 결과 ${campaignPreview.total}명 · 활성 계정 ${campaignPreview.eligible}명 · 제외 ${campaignPreview.excluded}명`}
             description="발송 미리보기에서 알림 동의와 기기 상태를 다시 확인합니다."

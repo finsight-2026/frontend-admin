@@ -43,26 +43,110 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
-test('filtered user export sends the applied filters and opens its job', async ({ page }) => {
+test('filtered user export previews the applied filters before opening its job', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
     items: [], page: 1, size: 20, total: 25,
   } }))
-  await page.route('**/api/v1/admin/exports/masked-users', (route) => route.fulfill({
+  const submissions: unknown[] = []
+  await page.route('**/api/v1/admin/exports/masked-users/preview', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ includeNoDiagnosis: true })
+    return route.fulfill({ json: {
+      previewId: targetUser, total: 25, eligible: 24, excluded: 1, expiresAt: '2026-11-14T01:00:00Z',
+    } })
+  })
+  await page.route('**/api/v1/admin/exports/masked-users', (route) => {
+    submissions.push(route.request().postDataJSON())
+    return route.fulfill({
     status: 202, json: { id: adminId, status: 'QUEUED', format: 'CSV' },
-  }))
+    })
+  })
   await page.route('**/api/v1/admin/jobs/' + adminId, (route) => route.fulfill({ json: {
     id: adminId, kind: 'MASKED_USERS', status: 'COMPLETED', scope: 'MASKED_USERS',
     processed: 1, total: 1, retryCount: 0, overdue: false,
   } }))
   await page.goto('/admin/users?includeNoDiagnosis=true')
-  const pending = page.waitForRequest((request) => request.url().endsWith('/exports/masked-users'))
   await page.getByRole('button', { name: '필터 전체 사용자 CSV' }).click()
+  await expect(page.getByText('CSV 내보내기 24명 · 제외 1명')).toBeVisible()
+  expect(submissions).toEqual([])
+  const pending = page.waitForRequest((request) => request.url().endsWith('/exports/masked-users'))
+  await page.getByRole('button', { name: '확정된 대상으로 CSV 요청' }).click()
   const request = await pending
-  expect(request.postDataJSON()).toEqual({ filter: { includeNoDiagnosis: true } })
+  expect(request.postDataJSON()).toEqual({ previewId: targetUser })
   expect(request.headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/)
   await expect(page).toHaveURL(new RegExp('/admin/jobs\\?id=' + adminId + '$'))
   await expect(page.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+})
+
+for (const status of [404, 409]) {
+  test(`filtered CSV replaces an invalid preview after HTTP ${status}`, async ({ page }) => {
+    await fixture(page, ['OPERATOR'])
+    await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
+      items: [], page: 1, size: 20, total: 2,
+    } }))
+    let previews = 0
+    const submissions: Array<{ previewId: string; key: string | undefined }> = []
+    await page.route('**/api/v1/admin/exports/masked-users/preview', (route) => {
+      const first = ++previews === 1
+      return route.fulfill({ json: {
+        previewId: first ? targetUser : adminId,
+        total: 2, eligible: first ? 2 : 1, excluded: first ? 0 : 1,
+        expiresAt: '2026-11-14T01:00:00Z',
+      } })
+    })
+    await page.route('**/api/v1/admin/exports/masked-users', (route) => {
+      submissions.push({
+        previewId: route.request().postDataJSON().previewId,
+        key: route.request().headers()['idempotency-key'],
+      })
+      return submissions.length === 1 ? route.fulfill({ status }) : route.fulfill({
+        status: 202, json: { id: adminId, status: 'QUEUED', format: 'CSV' },
+      })
+    })
+
+    await page.goto('/admin/users?includeNoDiagnosis=true')
+    const preview = page.getByRole('button', { name: '필터 전체 사용자 CSV' })
+    const confirm = page.getByRole('button', { name: '확정된 대상으로 CSV 요청' })
+    await preview.click()
+    await expect(page.getByText('CSV 내보내기 2명 · 제외 0명')).toBeVisible()
+    await confirm.click()
+    await expect(page.getByText('CSV 대상이 변경되었거나 확인 시간이 지났어요. 대상을 다시 확인해 주세요.')).toBeVisible()
+    await expect(confirm).toHaveCount(0)
+    expect(submissions.map(({ previewId }) => previewId)).toEqual([targetUser])
+
+    await preview.click()
+    await expect(page.getByText('CSV 내보내기 1명 · 제외 1명')).toBeVisible()
+    expect(submissions).toHaveLength(1)
+    await confirm.click()
+    await expect(page).toHaveURL(new RegExp('/admin/jobs\\?id=' + adminId + '$'))
+    expect(submissions.map(({ previewId }) => previewId)).toEqual([targetUser, adminId])
+    expect(submissions[0].key).toBeTruthy()
+    expect(submissions[1].key).toBeTruthy()
+    expect(submissions[1].key).not.toBe(submissions[0].key)
+  })
+}
+
+test('failed user refresh disables filtered bulk operations', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  let fail = false
+  await page.route('**/api/v1/admin/users?*', (route) => fail ? route.fulfill({ status: 503 }) :
+    route.fulfill({ json: { items: [], page: 1, size: 20, total: 2 } }))
+  await page.goto('/admin/users?includeNoDiagnosis=true')
+  const csv = page.getByRole('button', { name: '필터 전체 사용자 CSV' })
+  const crm = page.getByRole('button', { name: '필터 전체 CRM 대상 확인' })
+  const search = page.getByRole('button', { name: '조회', exact: true })
+  await expect(csv).toBeEnabled()
+  await expect(crm).toBeEnabled()
+  fail = true
+  await search.click()
+  await expect(page.getByText('요청을 완료하지 못했습니다.')).toBeVisible()
+  await expect(csv).toBeDisabled()
+  await expect(crm).toBeDisabled()
+  await expect(search).toHaveAttribute('aria-busy', 'false')
+  fail = false
+  await search.click()
+  await expect(csv).toBeEnabled()
+  await expect(crm).toBeEnabled()
 })
 
 test('filtered CRM drafts use a server preview rather than user IDs', async ({ page }) => {
