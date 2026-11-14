@@ -240,7 +240,8 @@ test('operating settings offer a fresh read after service failure and a save con
 
 test('a failed screen import leaves navigation available', async ({ page }) => {
   await fixture(page, ['ANALYST'])
-  await page.route('**/src/AdminDashboard.tsx', (route) => route.fulfill({ status: 404 }))
+  await page.route((url) => url.pathname === '/src/AdminDashboard.tsx' ||
+    /^\/assets\/AdminDashboard-[\w-]+\.js$/.test(url.pathname), (route) => route.fulfill({ status: 404 }))
   await page.goto('/admin/dashboard')
   await expect(page.getByText('화면을 열지 못했어요.')).toBeVisible()
   await expect(page.getByRole('button', { name: '새로고침' })).toBeVisible()

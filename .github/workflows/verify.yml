@@ -29,6 +29,8 @@ jobs:
       - run: bash -n deploy/configure-backend.sh
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+        env:
+          FINSIGHT_PLAYWRIGHT_BUILD: '1'
       - name: 배포 아카이브와 체크섬 생성
         run: |
           mkdir -p release
