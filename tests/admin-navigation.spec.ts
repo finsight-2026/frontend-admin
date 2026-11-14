@@ -43,6 +43,40 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('event search clears stale results and retries the applied filter', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  const filteredRequests: string[] = []
+  await page.route((url) => url.pathname === '/api/v1/admin/events', async (route) => {
+    const params = new URL(route.request().url()).searchParams
+    const user = params.get('userId')
+    if (user) {
+      filteredRequests.push(user)
+      if (filteredRequests.length === 1) {
+        await route.fulfill({ status: 503 })
+      } else {
+        await route.fulfill({ json: { items: [], total: 0 } })
+      }
+      return
+    }
+    await route.fulfill({ json: { items: [{
+      eventId: adminId, eventName: 'USER_SIGNED_UP', userId: adminId,
+      occurredAt: '2026-11-14T00:00:00Z', receivedAt: '2026-11-14T00:00:00Z',
+      clockAdjusted: false, properties: {},
+    }], total: 1 } })
+  })
+  await page.goto('/admin/events')
+  await expect(page.getByRole('cell', { name: '회원가입 완료' })).toBeVisible()
+  await page.getByLabel('사용자 ID').fill(targetUser)
+  await page.getByRole('button', { name: '조회', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('이벤트를 불러오지 못했습니다.')
+  await expect(page.getByRole('cell', { name: '회원가입 완료' })).toHaveCount(0)
+  await expect(page.getByText('조건에 맞는 항목이 없어요.')).toHaveCount(0)
+  await page.getByLabel('사용자 ID').fill(adminId)
+  await page.getByRole('button', { name: '다시 조회' }).click()
+  await expect(page.getByText('조건에 맞는 항목이 없어요.')).toBeVisible()
+  expect(filteredRequests).toEqual([targetUser, targetUser])
+})
+
 test('filtered user export sends the applied filters and opens its job', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {

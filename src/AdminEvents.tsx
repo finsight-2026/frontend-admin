@@ -58,13 +58,16 @@ export default function AdminEvents() {
   function search(next: typeof query) {
     setLoading(true)
     setError(undefined)
+    setData(undefined)
     setQuery(next)
   }
 
   return <Card title="앱 이벤트">
     <Space orientation="vertical" style={{ display: 'flex' }}>
-      {error && <Alert type="error" title={error} showIcon />}
-      <Form<Filters> form={form} layout="vertical" onFinish={(filters) => search({ page: 1, filters })}>
+      {error && <Alert type="error" title={error} showIcon
+        action={<Button size="small" onClick={() => search({ ...query })}>다시 조회</Button>} />}
+      <Form<Filters> form={form} layout="vertical" scrollToFirstError={{ focus: true }}
+        onFinish={(filters) => search({ page: 1, filters })}>
         <div className="admin-user-filters">
           {idFields.map(([key, label]) => <Form.Item key={key} name={key} label={label} rules={[{
             pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, message: 'UUID 형식을 확인해주세요.',
@@ -81,6 +84,7 @@ export default function AdminEvents() {
         </Space>
       </Form>
       <Table<Event> rowKey="eventId" dataSource={data?.items ?? []} pagination={false} loading={loading}
+        locale={{ emptyText: loading || error ? null : '조건에 맞는 항목이 없어요.' }}
         scroll={lg ? { x: 950 } : undefined} tableLayout={lg ? undefined : 'fixed'} columns={[
           { title: '발생 시각 (KST)', render: (_, row) => time.format(new Date(row.occurredAt)) },
           { title: '종류', render: (_, row) => <span style={{ wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
