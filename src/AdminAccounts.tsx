@@ -73,6 +73,9 @@ export default function AdminAccounts({ self, onSelfChanged }: { self: string; o
       setRevision((value) => value + 1)
     } catch (failure) {
       if (failure instanceof AdminAccountError && failure.status === 428) setReauth(true)
+      else if (action.kind !== 'edit' && failure instanceof AdminAccountError && failure.status === 503) {
+        setError('현재 관리자 초대 메일을 보낼 수 없어요. 발송 설정을 확인한 뒤 다시 시도해 주세요.')
+      }
       else setError(failure instanceof Error ? failure.message : '관리자 변경에 실패했습니다.')
     } finally { setBusy(false) }
   }
