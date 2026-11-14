@@ -543,6 +543,42 @@ test('job detail exposes the CSV download when a queued export completes', async
   await expect(dialog).toBeHidden()
 })
 
+test('job monitor returns to the last page when the completed export leaves the active filter', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  let completed = false
+  const queued = { id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS', status: 'QUEUED',
+    processed: 0, total: 1, retryCount: 0, overdue: false }
+  const firstPage = Array.from({ length: 20 }, (_, index) => ({ ...queued, id: `${targetUser.slice(0, -2)}${index + 10}` }))
+  const requests: string[] = []
+  await page.route('**/api/v1/admin/jobs?*', (route) => {
+    const params = new URL(route.request().url()).searchParams
+    const requestedPage = params.get('page')
+    if (completed) requests.push(`${params.get('status')}:${requestedPage}`)
+    return route.fulfill({ json: { items: requestedPage === '1' ? firstPage : completed ? [] : [queued], total: completed ? 20 : 21 } })
+  })
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => route.fulfill({
+    json: completed ? { ...queued, status: 'COMPLETED', processed: 1 } : queued,
+  }))
+  await page.goto('/admin/jobs')
+  await page.getByRole('combobox', { name: '상태' }).click()
+  await page.getByTitle('접수', { exact: true }).click()
+  await page.getByRole('button', { name: '조회', exact: true }).click()
+  await page.getByTitle('2', { exact: true }).click()
+  const openJob = page.getByRole('button', { name: adminId, exact: true })
+  await openJob.click()
+  const detail = page.getByRole('dialog', { name: '작업 상세' })
+  await expect(detail.getByText('접수', { exact: true })).toBeVisible()
+  completed = true
+  await page.clock.runFor(5_100)
+  await expect(detail.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+  await expect.poll(() => requests).toEqual(['QUEUED:2', 'QUEUED:1'])
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  await expect(page.getByRole('button', { name: firstPage[0].id, exact: true })).toBeVisible()
+  await expect(openJob).toHaveCount(0)
+})
+
 test('job monitor clears stale results after the completion refresh fails', async ({ page }) => {
   await page.clock.install()
   await fixture(page, ['OPERATOR'])

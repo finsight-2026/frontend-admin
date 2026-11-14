@@ -11,6 +11,7 @@ type Job = {
   overdue: boolean; deadlineWarning?: boolean; stage?: string
 }
 type Page = { items: Job[]; total: number }
+const pageSize = 20
 
 const kinds: Record<string, string> = {
   CAMPAIGN: '서비스 안내 캠페인', BULK_TAG: '일괄 태그', APP_EXPORT: '사용자 내보내기',
@@ -87,11 +88,17 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
 
   useEffect(() => {
     const abort = new AbortController()
-    const query = new URLSearchParams({ page: String(page) })
+    const query = new URLSearchParams({ page: String(page), size: String(pageSize) })
     for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value)
     void read<Page>(root + '?' + query, abort.signal).then((result) => {
       if (abort.signal.aborted) return
       setError(undefined)
+      const lastPage = Math.max(1, Math.ceil(result.total / pageSize))
+      if (page > lastPage) {
+        setData(undefined)
+        setPage(lastPage)
+        return
+      }
       setData(result)
     }).catch((failure: Error) => {
       if (abort.signal.aborted) return
@@ -199,7 +206,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
       </Form>
       {error && <Alert type="error" showIcon title={error} />}
       <Table<Job> rowKey="id" dataSource={data?.items ?? []} loading={!data && !error} scroll={{ x: 920 }}
-        pagination={{ current: page, pageSize: 20, total: data?.total ?? 0, showSizeChanger: false, onChange: (next) => {
+        pagination={{ current: page, pageSize, total: data?.total ?? 0, showSizeChanger: false, onChange: (next) => {
           setData(undefined)
           setError(undefined)
           setPage(next)
