@@ -25,6 +25,30 @@ Chrome을 쓰지 않는 환경에서는 `npx playwright install chromium` 후 `n
 
 정적 번들을 되돌리려면 Caddy 데이터 볼륨의 `finsight-admin/<환경>`에서 `previous`가 가리키는 릴리스를 확인한다. 그 대상을 새 심볼릭 링크로 만든 뒤 `mv -Tf`로 `current`를 교체한다. 프록시 설정은 저장한 Caddyfile을 복원하고 검증 후 다시 로드한다.
 
+### V70 이전 백엔드로 복구
+
+V70의 스키마는 이전 운영 이미지에서도 읽을 수 있다. 이전 이미지의 작업 처리기는 `MASKED_USERS`를 지원하지 않으므로, 해당 버전으로 복구할 때는 새 백엔드가 작업을 받거나 처리하지 않도록 중지한 뒤 같은 환경의 DB에서 아래 트랜잭션을 실행한다. 대기 중인 마스킹 CSV 작업과 발급된 다운로드 링크는 사용할 수 없게 된다. 다른 종류의 내보내기 데이터는 이 트랜잭션의 적용 범위에 들어가지 않는다.
+
+```sql
+BEGIN;
+UPDATE admin_dashboard_export
+SET status='CANCELED', completed_at=clock_timestamp(), next_run_at=NULL,
+    retryable=false, error_code=NULL
+WHERE kind='MASKED_USERS' AND (status='QUEUED' OR (status='FAILED' AND retryable));
+
+DELETE FROM admin_dashboard_export_link l USING admin_dashboard_export e
+WHERE l.export_id=e.id AND e.kind='MASKED_USERS';
+
+UPDATE admin_dashboard_export SET archive=NULL, error_code='FILE_EXPIRED'
+WHERE kind='MASKED_USERS' AND archive IS NOT NULL;
+
+DELETE FROM admin_masked_export_user u USING admin_dashboard_export e
+WHERE u.export_id=e.id AND e.kind='MASKED_USERS';
+COMMIT;
+```
+
+이전 웹 번들과 백엔드를 시작하고 공개 API 상태, 설문 조회, 관리자 로그인 화면과 세션 응답을 확인한다. Flyway 이력은 V70을 유지한다. 새 버전 재배포 후 마스킹 CSV가 필요하면 작업을 다시 접수한다.
+
 ## 최초 관리자
 
 서버의 대화형 SSH 터미널에서 `bash bootstrap-admin.sh production <이메일>`을 실행한다. 계정이 비어 있는 환경에서만 동작한다. 초기 계정에는 최고관리자·운영자·분석자 역할을 부여하고 감사 기록을 남긴다. 비밀번호는 숨겨진 프롬프트에 입력하고 출력된 TOTP 키는 인증 앱에만 등록한다.
