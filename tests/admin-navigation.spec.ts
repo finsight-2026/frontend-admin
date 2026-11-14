@@ -43,6 +43,52 @@ async function fixture(page: Page, permissions: string[]) {
   return paths
 }
 
+test('operating settings offer a fresh read after service failure and a save conflict', async ({ page }) => {
+  await fixture(page, ['SUPER_ADMIN'])
+  let unavailable = true
+  let version = 1
+  const saves: number[] = []
+  await page.route('**/api/v1/admin/settings', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      saves.push(route.request().postDataJSON().expectedVersion)
+      version = 2
+      await route.fulfill({ status: 409 })
+      return
+    }
+    if (unavailable) {
+      await route.fulfill({ status: 503 })
+      return
+    }
+    await route.fulfill({ json: {
+      policy: {
+        version, comparisonMetrics: [], crmPaused: version === 2, automaticPushPaused: false,
+        reminderCap: 1, totalCap: 2, funnelCheck: 1.8, funnelPriority: 2.5, operatorId: null,
+      },
+      comparisonMinimums: [{ type: 'DEBT', minimum: null }], operators: [],
+    } })
+  })
+  await page.goto('/admin/settings')
+  await expect(page.getByRole('alert')).toContainText('일시적으로 연결할 수 없어요')
+  unavailable = false
+  const reload = page.getByRole('button', { name: '새로고침' })
+  await reload.focus()
+  await page.keyboard.press('Enter')
+  const crm = page.getByRole('switch', { name: 'CRM 발송 일시정지' })
+  await expect(crm).toHaveAttribute('aria-checked', 'false')
+  await crm.focus()
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: '변경 검토' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('변경 사유').fill('운영 설정 동시 저장 검증을 위한 사유입니다.')
+  await dialog.getByRole('button', { name: '설정 저장' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('다른 관리자가 수정했어요.')
+  await expect(dialog.getByRole('button', { name: '설정 저장' })).toBeDisabled()
+  await dialog.getByRole('button', { name: '최신 설정 불러오기' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(crm).toHaveAttribute('aria-checked', 'true')
+  expect(saves).toEqual([1])
+})
+
 test('a failed screen import leaves navigation available', async ({ page }) => {
   await fixture(page, ['ANALYST'])
   await page.route('**/src/AdminDashboard.tsx', (route) => route.fulfill({ status: 404 }))

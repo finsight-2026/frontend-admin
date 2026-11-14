@@ -34,9 +34,10 @@ async function decode<T>(response: Response): Promise<T> {
   const messages: Record<number, string> = {
     401: '다시 로그인해주세요.',
     403: '운영 설정을 관리할 권한이 없습니다.',
-    409: '다른 변경이 먼저 저장되었습니다. 새로고침 후 다시 적용해주세요.',
+    409: '다른 관리자가 수정했어요. 최신 내용을 확인해 주세요.',
     422: '설정값, 변경 사유 또는 인증 코드를 확인해주세요.',
     429: '인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.',
+    503: '운영 설정 서비스에 일시적으로 연결할 수 없어요. 잠시 후 다시 시도해 주세요.',
   }
   throw new Error(messages[response.status] ?? '운영 설정 요청에 실패했습니다.')
 }
@@ -52,7 +53,17 @@ export default function AdminOperatingSettings() {
   const [reason, setReason] = useState('')
   const [code, setCode] = useState('')
   const [reauth, setReauth] = useState(false)
+  const [conflict, setConflict] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  function refresh() {
+    setProposal(undefined)
+    setConflict(false)
+    setState(undefined)
+    setError(undefined)
+    setResult(undefined)
+    setRevision((value) => value + 1)
+  }
 
   function display(data: Settings) {
     setState(data)
@@ -117,6 +128,7 @@ export default function AdminOperatingSettings() {
     setReason('')
     setCode('')
     setReauth(false)
+    setConflict(false)
     setProposal({ values, review })
   }
 
@@ -140,6 +152,7 @@ export default function AdminOperatingSettings() {
         }),
       })
       if (response.status === 428) { setReauth(true); return }
+      if (response.status === 409) setConflict(true)
       display(await decode<Settings>(response))
       clearUnsaved()
       setProposal(undefined)
@@ -156,22 +169,17 @@ export default function AdminOperatingSettings() {
   if (state?.policy.operatorId && !operators.some((item) => item.value === state.policy.operatorId)) {
     operators.push({ value: state.policy.operatorId, label: state.policy.operatorId + ' · 비활성' })
   }
-  return <Card title="운영 설정" extra={<Button disabled={busy || !!proposal} onClick={() => {
-    setState(undefined)
-    setError(undefined)
-    setResult(undefined)
-    setRevision((value) => value + 1)
-  }}>새로고침</Button>}>
+  return <Card title="운영 설정" extra={<Button disabled={busy || !!proposal} onClick={refresh}>새로고침</Button>}>
     <Space orientation="vertical" style={{ display: 'flex' }}>
       {error && !proposal && <Alert type="error" title={error} showIcon />}
       {result && <Alert type="success" title={result} />}
-      {state && <Form form={form} layout="vertical" onValuesChange={markUnsaved} onFinish={propose} disabled={busy}>
+      <Form form={form} layout="vertical" onValuesChange={markUnsaved} onFinish={propose} disabled={busy} hidden={!state}>
         <Typography.Title level={4}>비공개 비교</Typography.Title>
         <Form.Item name="comparisonMetrics" label="공개 허용 지표">
           <Checkbox.Group options={Object.entries(metrics).map(([value, label]) => ({ value, label }))} />
         </Form.Item>
         <div className="admin-user-filters">
-          {state.comparisonMinimums.map(({ type }) => <Form.Item key={type} name={['minimums', type]}
+          {state?.comparisonMinimums.map(({ type }) => <Form.Item key={type} name={['minimums', type]}
             label={types[type] + ' 최소 표본'} rules={[{ type: 'integer', min: 30, message: '30명 이상을 입력해주세요.' }]}>
             <InputNumber min={30} precision={0} placeholder="미설정" />
           </Form.Item>)}
@@ -187,13 +195,14 @@ export default function AdminOperatingSettings() {
           <Form.Item name="operatorId" label="운영 담당자"><Select allowClear options={operators} placeholder="미지정" /></Form.Item>
         </div>
         <Button type="primary" htmlType="submit">변경 검토</Button>
-      </Form>}
+      </Form>
     </Space>
     <Modal open={!!proposal} title="운영 설정 변경 확인" onCancel={() => setProposal(undefined)} onOk={() => void save()}
       okText={reauth ? '재인증 후 저장' : '설정 저장'} cancelText="돌아가기" confirmLoading={busy}
-      okButtonProps={{ disabled: Array.from(reason.trim()).length < 10 || (reauth && !/^\d{6}$/.test(code)) }}>
+      okButtonProps={{ disabled: conflict || Array.from(reason.trim()).length < 10 || (reauth && !/^\d{6}$/.test(code)) }}>
       <Space orientation="vertical" style={{ display: 'flex' }}>
         {error && <Alert type="error" title={error} />}
+        {conflict && <Button onClick={refresh}>최신 설정 불러오기</Button>}
         <Descriptions bordered size="small" column={1} items={proposal?.review.map((row) => ({
           key: row.key, label: row.label, children: row.before + ' → ' + row.after,
         }))} />
