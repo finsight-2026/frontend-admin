@@ -65,11 +65,12 @@ async function write<T>(path: string, method: string, body: object, key?: string
   }).then((response) => decode<T>(response, key != null))
 }
 
-export default function AdminCampaigns() {
+export default function AdminCampaigns({ initialUsers }: { initialUsers: string[] }) {
   const [rows, setRows] = useState<Campaign[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [notices, setNotices] = useState<Notice[]>([])
-  const [editor, setEditor] = useState<Campaign | 'NEW'>()
+  const [editor, setEditor] = useState<Campaign | 'NEW' | undefined>(() => initialUsers.length ? 'NEW' : undefined)
+  const [draftUsers, setDraftUsers] = useState(initialUsers)
   const { mark: markUnsaved } = useAdminUnsaved(editor != null)
   const [selection, setSelection] = useState<{ campaign: Campaign; preview: Preview }>()
   const [canceling, setCanceling] = useState<Campaign>()
@@ -158,6 +159,7 @@ export default function AdminCampaigns() {
   }
 
   function open(item: Campaign | 'NEW') {
+    setDraftUsers([])
     setSelection(undefined)
     setReceipt(undefined)
     setEditor(item)
@@ -243,7 +245,9 @@ export default function AdminCampaigns() {
       ]} />
       {editor && <Card size="small" title="캠페인 초안">
         <Form<Fields> onValuesChange={markUnsaved} key={editor === 'NEW' ? 'new' : editor.id + '/' + editor.version} layout="vertical" onFinish={save}
-          disabled={busy} initialValues={editor === 'NEW' ? { target: 'SEGMENT' } : {
+          disabled={busy} initialValues={editor === 'NEW' ? {
+            target: draftUsers.length ? 'USERS' : 'SEGMENT', userIds: draftUsers.join('\n'),
+          } : {
             name: editor.name, target: editor.segmentId ? 'SEGMENT' : 'USERS',
             segmentRef: editor.segmentId ? editor.segmentId + '/' + editor.segmentVersion : undefined,
             userIds: editor.userIds.join('\n'), noticeRevisionId: editor.noticeRevisionId, scheduledAt: toKst(editor.requestedAt),

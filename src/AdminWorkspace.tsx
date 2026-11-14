@@ -99,6 +99,7 @@ type Props = {
 
 export default function AdminWorkspace({ identity, busy, error, logout, onSelfChanged }: Props) {
   const [path, setPath] = useState(initialPath)
+  const [campaignUsers, setCampaignUsers] = useState<string[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [delays, setDelays] = useState<Map<symbol, (() => void) | undefined>>(() => new Map())
   const [dirty] = useState(() => new Set<symbol>())
@@ -140,6 +141,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
       const destination = initialPath()
       history.replaceState({ finsightAdminIndex: index.current }, '', destination)
       setPath(destination)
+      setCampaignUsers([])
       setMenuOpen(false)
     }
 
@@ -173,7 +175,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
     return dirty.size === 0 || window.confirm('저장하지 않은 변경사항이 있어요. 이 화면을 나갈까요?')
   }
 
-  function navigate(destination: string) {
+  function navigate(destination: string, users: string[] = []) {
     if (destination === path) {
       setMenuOpen(false)
       return
@@ -182,6 +184,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
     dirty.clear()
     history.pushState({ finsightAdminIndex: ++index.current }, '', destination)
     setPath(destination)
+    setCampaignUsers(users)
     setMenuOpen(false)
     window.scrollTo(0, 0)
     main.current?.focus({ preventScroll: true })
@@ -205,7 +208,8 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
         if ((kind === 'GUIDE' ? guideKey : uuid).test(id)) navigate(editorialPath(target, id, revision))
       } : undefined} />
       case 'users': return <AdminUsers actorId={actorId} operator={operator} supervisor={supervisor} privacy={privacy}
-        userId={userId} search={route.search} onSelect={(id, query = route.searchParams) => {
+        userId={userId} search={route.search} onStartCampaign={(ids) => navigate(pathFor('campaigns'), ids)}
+        onSelect={(id, query = route.searchParams) => {
           const search = userListQuery(query.toString()).toString()
           navigate(pathFor('users') + (id && uuid.test(id) ? '/' + id : '') + (search ? '?' + search : ''))
         }} />
@@ -217,7 +221,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
       case 'notices': return <AdminNotices key="notices" actorId={actorId} operator={operator} supervisor={supervisor} />
       case 'comparison': return <AdminComparison operator={operator} supervisor={supervisor} />
       case 'segments': return <AdminSegments />
-      case 'campaigns': return <AdminCampaigns />
+      case 'campaigns': return <AdminCampaigns initialUsers={campaignUsers} />
       case 'jobs': return <AdminJobs key={route.search} jobId={route.searchParams.get('id') ?? undefined}
         operator={operator} privacy={privacy} analyst={analyst} />
       case 'accounts': return <AdminAccounts self={actorId} onSelfChanged={onSelfChanged} />

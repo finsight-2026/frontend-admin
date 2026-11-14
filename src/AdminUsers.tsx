@@ -60,9 +60,10 @@ async function get<T>(path: string, signal: AbortSignal) {
   return response.json() as Promise<T>
 }
 
-export default function AdminUsers({ actorId, operator, supervisor, privacy, userId: selected, search, onSelect }: {
+export default function AdminUsers({ actorId, operator, supervisor, privacy, userId: selected, search, onSelect, onStartCampaign }: {
   actorId: string; operator: boolean; supervisor: boolean; privacy: boolean
   userId?: string; search: string; onSelect: (id?: string, query?: URLSearchParams) => void
+  onStartCampaign: (ids: string[]) => void
 }) {
   const { filters, page } = useMemo(() => {
     const query = userListQuery(search)
@@ -232,6 +233,10 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               Object.entries(filters).filter(([, value]) => value != null && value !== '').map(([key, value]) =>
                 [key, typeof value === 'string' ? value.trim() || undefined : value]),
             )} changed={refreshUsers} />}
+          {operator && <Button disabled={loading || currentSelection.length === 0}
+            onClick={() => onStartCampaign(currentSelection)}>
+            선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
+          </Button>}
           <Table<User> rowSelection={operator ? {
             selectedRowKeys: currentSelection,
             onChange: (keys) => { setSelectionSearch(search); setChecked(keys.map(String)) },

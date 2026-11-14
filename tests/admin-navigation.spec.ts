@@ -43,6 +43,33 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('selected users prefill a CRM draft without sending or saving', async ({ page }) => {
+  const paths = await fixture(page, ['OPERATOR'])
+  await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
+    items: [targetUser, adminId].map((id) => ({
+      id, maskedEmail: 't***', createdAt: '2026-11-11T00:00:00Z', status: 'ACTIVE', diagnosisCount: 0, tags: [],
+    })),
+    page: 1, size: 20, total: 2,
+  } }))
+  const writes: string[] = []
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.url().includes('/admin/campaigns')) writes.push(request.url())
+  })
+  await page.goto('/admin/users')
+  const action = page.getByRole('button', { name: /으로 CRM 초안 작성/ })
+  await expect(action).toBeDisabled()
+  await page.getByRole('row').filter({ hasText: targetUser }).getByRole('checkbox').check()
+  await expect(action).toHaveText('선택한 사용자 1명으로 CRM 초안 작성')
+  await action.click()
+  await expect(page).toHaveURL(/\/admin\/campaigns$/)
+  const userIds = page.getByLabel('사용자 ID (쉼표 또는 줄바꿈)')
+  await expect(userIds).toHaveValue(targetUser)
+  expect(writes).toEqual([])
+  expect(paths).toContain('/campaigns')
+  await page.reload()
+  await expect(userIds).toHaveCount(0)
+})
+
 test('comparison review shows the live sample and confirms publication before submitting', async ({ page }) => {
   await fixture(page, ['SUPER_ADMIN'])
   const root = '**/api/v1/admin/comparison-snapshots'
