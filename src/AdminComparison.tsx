@@ -18,6 +18,7 @@ const metricLabels: Record<string, string> = {
 const publicationActions = { PUBLISH: '즉시 게시', SCHEDULE: '예약', UNPUBLISH: '비공개' }
 type PublicationChange = { action: keyof typeof publicationActions; replacePublicationId?: string; reason?: string }
 type PendingPublication = { change: PublicationChange; snapshotId: string; version: number }
+type Preview = { version: number; metrics: Record<string, number | Record<string, number>>; startsAt: string | null; endsAt: string | null }
 
 const path = '/api/v1/admin/comparison-snapshots'
 const types = {
@@ -29,6 +30,21 @@ const statuses: Record<string, string> = {
   IN_REVIEW: '검토 중', APPROVED: '승인', INVALIDATED: '무효',
 }
 const retryTime = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Seoul' })
+
+function PublicMetrics({ preview, keys }: { preview: Preview; keys?: string[] }) {
+  const entries = Object.entries(preview.metrics).filter(([key]) => !keys || keys.includes(key))
+  return <section aria-label="앱 공개 지표 미리보기">
+    <h3>앱 공개 지표 미리보기</h3>
+    {entries.length === 0 ? <p>공개 가능한 지표가 없어요.</p> : <ul>{entries.map(([key, value]) => (
+      <li key={key}>{metricLabels[key] ?? key}
+        {typeof value === 'number' ? ' · ' + value + '점' : <ul>{Object.entries(value).map(([area, mean]) => (
+          <li key={area}>{types[area as keyof typeof types] ?? area} · {mean}점</li>
+        ))}</ul>}
+      </li>
+    ))}</ul>}
+    {preview.startsAt && preview.endsAt && <p>승인된 공개 기간 {retryTime.format(new Date(preview.startsAt))} ~ {retryTime.format(new Date(preview.endsAt))} (KST)</p>}
+  </section>
+}
 
 async function decode<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
@@ -59,11 +75,27 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [pendingPublication, setPendingPublication] = useState<PendingPublication>()
+  const [previewState, setPreviewState] = useState<{ id: string; data?: Preview }>()
   const lastTransition = useRef<{ fingerprint: string; key: string } | undefined>(undefined)
   const current = items.find((item) => item.id === selected)
   const live = publications.find((item) => item.type === current?.type && item.status === 'ACTIVE')
   const liveSnapshot = items.find((item) => item.id === live?.snapshotId)
   const minimum = settings.find((item) => item.type === current?.type)?.minimum
+  const preview = previewState?.id === current?.id && previewState?.data?.version === current?.version
+    ? previewState?.data : undefined
+
+  useEffect(() => {
+    const id = current?.id
+    const version = current?.version
+    if (!id) return
+    const controller = new AbortController()
+    void adminFetch(path + '/' + id + '/preview', { signal: controller.signal }).then(decode<Preview>).then((data) => {
+      if (!controller.signal.aborted) setPreviewState({ id, data: data.version === version ? data : undefined })
+    }).catch(() => {
+      if (!controller.signal.aborted) setPreviewState({ id })
+    })
+    return () => controller.abort()
+  }, [current?.id, current?.version, settings])
 
   async function refresh(signal?: AbortSignal) {
     const [snapshots, config, active] = await Promise.all([
@@ -192,6 +224,8 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
           {current.failureReason === 'SOURCE_CHANGED' && <Alert type="warning" title="원천 데이터가 바뀌었습니다. 집계를 다시 요청해주세요." />}
           {current.failureReason === 'BUILD_FAILED' && <Alert type="error" title="집계에 실패했습니다. 원인을 확인한 뒤 집계를 다시 요청해주세요." />}
           {current.nextRunAt && <Alert type="info" title={'다음 집계 시도 ' + retryTime.format(new Date(current.nextRunAt)) + ' (KST)'} />}
+          {previewState?.id === current.id && !preview && <Alert type="warning" title="앱 공개 지표를 확인할 수 없어요. 목록을 새로고침해 주세요." />}
+          {preview && !(supervisor && current.status === 'IN_REVIEW') && <PublicMetrics preview={preview} />}
           {Object.entries(current.metrics).map(([key, value]) => (
             <div key={key}>
               <strong>{metricLabels[key] ?? key}</strong>
@@ -209,8 +243,13 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
               startsAt: values.startsAt + ':00+09:00', endsAt: values.endsAt + ':00+09:00', reason: values.reason,
             }))}>
               <Form.Item name="allowedMetrics" label="공개 허용 지표" rules={[{ required: true }]}>
-                <Select mode="multiple" options={Object.entries(metricLabels).map(([value, label]) => ({ value, label }))} />
+                <Select mode="multiple" options={Object.entries(metricLabels).map(([value, label]) => ({
+                  value, label, disabled: preview ? !Object.hasOwn(preview.metrics, value) : false,
+                }))} />
               </Form.Item>
+              {preview && <Form.Item noStyle shouldUpdate={(before, after) => before.allowedMetrics !== after.allowedMetrics}>
+                {({ getFieldValue }) => <PublicMetrics preview={preview} keys={getFieldValue('allowedMetrics') ?? []} />}
+              </Form.Item>}
               <div className="admin-user-filters">
                 <Form.Item name="startsAt" label="공개 시작 (KST)" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item>
                 <Form.Item name="endsAt" label="공개 종료 (KST)" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item>

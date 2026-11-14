@@ -54,6 +54,11 @@ test('comparison review shows the live sample and confirms publication before su
   const writes: object[] = []
   await page.route(root, (route) => route.fulfill({ json: [draft, live] }))
   await page.route(root + '/settings', (route) => route.fulfill({ json: [{ type: 'DEBT', minimum: 30, version: 1 }] }))
+  await page.route(root + '/*/preview', (route) => route.fulfill({ json: {
+    version: 2,
+    metrics: route.request().url().includes(live.id) ? { YFSI_MEAN: 51 } : {},
+    startsAt: null, endsAt: null,
+  } }))
   await page.route(root + '/publications', (route) => route.fulfill({ json: [{
     id: adminId, snapshotId: live.id, type: 'DEBT', status: 'ACTIVE',
     startsAt: '2026-11-11T00:00:00Z', endsAt: '2026-11-30T00:00:00Z',
@@ -67,7 +72,9 @@ test('comparison review shows the live sample and confirms publication before su
   await expect(page.getByText('표본이 공개 최소 기준에 미달해요.')).toBeVisible()
   await expect(page.getByText('2026-10-01 ~ 2026-10-30 · 35명 · yfsi-v1')).toBeVisible()
   await expect(page.getByRole('button', { name: '승인', exact: true })).toBeDisabled()
+  await expect(page.getByRole('region', { name: '앱 공개 지표 미리보기' })).toHaveText(/공개 가능한 지표가 없어요/)
   await page.getByRole('button', { name: '집계 보기' }).click()
+  await expect(page.getByRole('region', { name: '앱 공개 지표 미리보기' })).toHaveText(/YFSI 평균 · 51점/)
   await page.getByRole('combobox', { name: '공개 작업' }).click()
   await page.getByText('비공개', { exact: true }).click()
   await page.getByLabel('비공개 사유').fill('공개 기간과 공지 정합성을 재검토합니다.')
