@@ -105,6 +105,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
   const index = useRef(0)
   const restoring = useRef(false)
   const main = useRef<HTMLElement>(null)
+  const menuToggle = useRef<HTMLButtonElement>(null)
   const route = new URL(path, window.location.origin)
   const userId = route.pathname.startsWith('/admin/users/') ? route.pathname.slice('/admin/users/'.length) : undefined
   const current = entries.find((entry) => pathFor(entry.key) === route.pathname)
@@ -230,6 +231,10 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
 
   const readRetries = [...delays.values()].filter((retry) => retry !== undefined)
   return <AdminDirtyContext.Provider value={dirty}>
+    <a className="admin-skip-link" href="#admin-page" onClick={(event) => {
+      event.preventDefault()
+      main.current?.focus()
+    }}>본문으로 바로가기</a>
     <header className="admin-header">
       <a className="admin-brand" href={defaultPath} onClick={(event) => link(event, defaultPath)}>FINSIGHT 관리자</a>
       <Space wrap size="small">
@@ -239,8 +244,13 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
       </Space>
     </header>
     <div className="admin-workspace">
-      <aside className="admin-sidebar">
-        <Button className="admin-menu-toggle" aria-controls="admin-menu" aria-expanded={menuOpen}
+      <aside className="admin-sidebar" onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !menuOpen || !menuToggle.current?.getClientRects().length) return
+        event.preventDefault()
+        setMenuOpen(false)
+        menuToggle.current.focus()
+      }}>
+        <Button ref={menuToggle} className="admin-menu-toggle" aria-controls="admin-menu" aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}>관리 메뉴</Button>
         <nav id="admin-menu" aria-label="관리 메뉴" className={menuOpen ? 'admin-menu is-open' : 'admin-menu'}>
           {groups.map(({ label, entries }) => {
@@ -255,7 +265,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
           })}
         </nav>
       </aside>
-      <main className="admin-page" ref={main} tabIndex={-1} aria-label={userId ? '사용자 상세' : current?.title ?? '관리자 백오피스'}>
+      <main id="admin-page" className="admin-page" ref={main} tabIndex={-1} aria-label={userId ? '사용자 상세' : current?.title ?? '관리자 백오피스'}>
         {error && <Alert title={error} type="error" showIcon />}
         {delays.size > 0 && <Alert type="info" showIcon title="응답이 10초 이상 지연되고 있어요."
           action={readRetries.length > 0 && <Button size="small" onClick={() => readRetries.forEach((retry) => retry())}>조회 재시도</Button>} />}

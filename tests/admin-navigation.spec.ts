@@ -4,14 +4,14 @@ const adminId = '7f85fdc9-0dce-48ec-9fee-98ff37e52e2b'
 const targetUser = 'a05e15d5-dad5-4636-ac38-a849118663f7'
 const capability = { screenId: 'B_006', variants: ['SUMMARY_FIRST', 'RESTART_FIRST'], enabled: true }
 
-async function fixture(page: Page, permissions: string[]) {
+async function fixture(page: Page, permissions: string[], name = '테스트 관리자') {
   const paths: string[] = []
   await page.route('**/api/v1/admin/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1/admin', '')
     paths.push(path)
     switch (path) {
       case '/auth/me':
-        await route.fulfill({ json: { admin: { id: adminId, name: '테스트 관리자' }, permissions } })
+        await route.fulfill({ json: { admin: { id: adminId, name }, permissions } })
         break
       case '/auth/csrf':
         await route.fulfill({ json: { token: 'fixture', headerName: 'X-XSRF-TOKEN' } })
@@ -42,6 +42,31 @@ async function fixture(page: Page, permissions: string[]) {
   })
   return paths
 }
+
+test('keyboard focus stays visible and the workspace fits enlarged text on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 })
+  await fixture(page, ['OPERATOR', 'ANALYST'], '운영관리자'.repeat(10))
+  await page.goto('/admin/experiments')
+  await page.addStyleTag({ content: 'html { font-size: 200% }' })
+  const main = page.getByRole('main', { name: '실험 관리' })
+  await expect(main).toBeVisible()
+  await page.keyboard.press('Tab')
+  const skip = page.getByRole('link', { name: '본문으로 바로가기' })
+  await expect(skip).toBeFocused()
+  await expect(skip).toHaveCSS('outline-color', 'rgb(200, 255, 0)')
+  await page.keyboard.press('Enter')
+  await expect(main).toBeFocused()
+  const menu = page.getByRole('button', { name: '관리 메뉴' })
+  await menu.focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: '대시보드' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeFocused()
+  await expect(menu).toHaveAttribute('aria-expanded', 'false')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  await expect(page.locator('.admin-header')).toHaveCSS('border-bottom-color', 'rgb(60, 61, 65)')
+})
 
 test('operating settings offer a fresh read after service failure and a save conflict', async ({ page }) => {
   await fixture(page, ['SUPER_ADMIN'])
