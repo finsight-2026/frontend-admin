@@ -11,6 +11,12 @@ type Fields = { email?: string; name?: string; roles?: Role[]; status?: Status; 
 const statuses: Record<Status, string> = { INVITED: '초대 대기', ACTIVE: '활성', SUSPENDED: '정지' }
 const roles: Record<Role, string> = { SUPER_ADMIN: '최고관리자', OPERATOR: '운영자', PRIVACY: '개인정보 담당자', ANALYST: '분석 담당자' }
 const titles = { invite: '관리자 초대', edit: '관리자 역할·상태 변경', resend: '초대 다시 보내기', reset: 'MFA 초기화' }
+const receipts = {
+  invite: '관리자 초대 요청을 접수했습니다.',
+  edit: '관리자 정보를 저장했습니다.',
+  resend: '초대 메일 재발송 요청을 접수했습니다.',
+  reset: 'MFA 초기화와 재등록 초대 요청을 접수했습니다.',
+}
 const root = '/admins'
 
 export default function AdminAccounts({ self, onSelfChanged }: { self: string; onSelfChanged: () => void }) {
@@ -62,7 +68,7 @@ export default function AdminAccounts({ self, onSelfChanged }: { self: string; o
         const endpoint = action.kind === 'resend' ? 'resend-invitation' : 'mfa-reset'
         await accountWrite(root + '/' + action.row.id + '/' + endpoint, 'POST', { reason: values.reason })
       }
-      setMessage(action.kind === 'edit' ? '관리자 정보를 저장했습니다.' : '로컬 초대함으로 초대를 요청했습니다.')
+      setMessage(receipts[action.kind])
       setAction(undefined)
       setRevision((value) => value + 1)
     } catch (failure) {
