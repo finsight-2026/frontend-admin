@@ -91,21 +91,27 @@ export default function AdminPiiPanel({ userId, diagnosisId }: {
   useEffect(() => {
     if (!queuedId) return
     const abort = new AbortController()
+    const current = generation.current
+    let poll: ReturnType<typeof setTimeout>
     async function check() {
       try {
         const job = await adminFetch('/api/v1/admin/jobs/' + queuedId, {
           cache: 'no-store', signal: abort.signal,
         }).then(checked).then((reply) => reply.json() as Promise<ExportJob>)
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && generation.current === current) {
           setError(undefined)
           setExportJob(job)
+          if (job.status === 'QUEUED') poll = setTimeout(() => void check(), 3000)
         }
       } catch (failure) {
-        if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : '작업을 조회하지 못했습니다.')
+        if (!abort.signal.aborted && generation.current === current) {
+          setError(failure instanceof Error ? failure.message : '작업을 조회하지 못했습니다.')
+          poll = setTimeout(() => void check(), 3000)
+        }
       }
     }
-    const poll = setInterval(() => void check(), 3000)
-    return () => { abort.abort(); clearInterval(poll) }
+    poll = setTimeout(() => void check(), 3000)
+    return () => { abort.abort(); clearTimeout(poll) }
   }, [queuedId])
 
   function clear() {

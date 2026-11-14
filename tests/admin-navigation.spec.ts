@@ -829,6 +829,61 @@ test('an archived news draft is hidden until filtered and can seed a new draft',
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
 
+test('private CSV status reads do not overlap and ending access revokes the grant', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['PRIVACY'])
+  const grants = '**/api/v1/admin/users/' + targetUser + '/pii-grants'
+  const expiresAt = new Date(Date.now() + 600_000).toISOString()
+  await page.route(grants, (route) => route.fulfill({ status: 201, json: { grantId: adminId, expiresAt } }))
+  await page.route(grants + '/' + adminId, (route) => route.fulfill({ status: 204 }))
+  await page.route('**/api/v1/admin/exports', (route) => route.fulfill({
+    status: 202, json: { id: adminId, status: 'QUEUED' },
+  }))
+  const downloadPath = '/api/v1/admin/exports/' + adminId + '/file'
+  await page.route('**/api/v1/admin/exports/' + adminId + '/download', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ grantId: adminId })
+    await route.fulfill({ json: { url: downloadPath + '?pii=true&token=fixture' } })
+  })
+  await page.route((url) => url.pathname === downloadPath, (route) => route.fulfill({
+    headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename=private.csv' },
+    body: 'email\nfixture@example.com\n',
+  }))
+  let reads = 0
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/v1/admin/jobs/' + adminId, async (route) => {
+    reads++
+    await pending
+    await route.fulfill({ json: { id: adminId, status: 'COMPLETED' } })
+  })
+  try {
+    await page.goto('/admin/users/' + targetUser)
+    await page.getByRole('checkbox', { name: '이메일·가입 프로필' }).check()
+    await page.getByLabel('열람 사유').fill('테스트 개인정보 요청을 확인합니다.')
+    await page.getByRole('button', { name: '원문 CSV 요청' }).click()
+    await expect(page.getByText('원문 CSV 생성 대기 중')).toBeVisible()
+    await page.clock.runFor(3100)
+    await expect.poll(() => reads).toBe(1)
+    await page.clock.runFor(9000)
+    expect(reads).toBe(1)
+    release()
+    const download = page.getByRole('button', { name: '원문 CSV 다운로드' })
+    await expect(download).toBeVisible()
+    const file = page.waitForEvent('download')
+    await download.click()
+    expect((await file).url()).toContain(downloadPath + '?pii=true&token=fixture')
+    const revoked = page.waitForRequest((request) =>
+      request.method() === 'DELETE' && request.url().endsWith('/pii-grants/' + adminId))
+    await page.getByRole('button', { name: '개인정보 권한 종료' }).click()
+    await revoked
+    await expect(download).toHaveCount(0)
+    await page.clock.runFor(9000)
+    expect(reads).toBe(1)
+  } finally {
+    release()
+  }
+})
+
 test('news scheduling requires preview confirmation and submits Korean time', async ({ page }, testInfo) => {
   await fixture(page, ['SUPER_ADMIN'])
   const article = {
