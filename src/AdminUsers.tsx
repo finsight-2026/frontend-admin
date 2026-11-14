@@ -6,7 +6,7 @@ import AdminUserNotes from './AdminUserNotes'
 import AdminPiiPanel from './AdminPiiPanel'
 import { TagCatalog, UserTagEditor, type Tag } from './AdminUserTags'
 import { userIdPattern, userListQuery, type CampaignDraftTarget, type CampaignTargetPreview, type UserFilters } from './adminNavigation'
-import { accountWrite } from './adminAccountApi'
+import { AdminAccountError, accountWrite } from './adminAccountApi'
 
 type User = {
   id: string
@@ -90,6 +90,10 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const [checked, setChecked] = useState<string[]>([])
   const [targetLoading, setTargetLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportPreviewLoading, setExportPreviewLoading] = useState(false)
+  const [exportPreview, setExportPreview] = useState<{ search: string; revision: number; data: CampaignTargetPreview }>()
+  const csvPreview = exportPreview?.search === search && exportPreview.revision === dataRevision
+    ? exportPreview.data : undefined
   const exportAttempt = useRef<{ fingerprint: string; key: string }>(undefined)
   const [targetPreview, setTargetPreview] = useState<{ search: string; data: CampaignTargetPreview }>()
   const campaignPreview = targetPreview?.search === search ? targetPreview?.data : undefined
@@ -153,7 +157,21 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     onSelect(id)
   }
 
-  async function exportUsers(selection: { userIds: string[] } | { filter: UserFilters }) {
+  async function previewExport() {
+    setError(undefined)
+    setExportPreview(undefined)
+    setExportPreviewLoading(true)
+    try {
+      const data = await accountWrite<CampaignTargetPreview>('/exports/masked-users/preview', 'POST', filters)
+      setExportPreview({ search, revision: dataRevision, data })
+    } catch {
+      setError('CSV 대상을 확인하지 못했어요. 다시 시도해 주세요.')
+    } finally {
+      setExportPreviewLoading(false)
+    }
+  }
+
+  async function exportUsers(selection: { userIds: string[] } | { previewId: string }) {
     setExporting(true)
     setError(undefined)
     const fingerprint = JSON.stringify(selection)
@@ -164,8 +182,13 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
       const job = await accountWrite<{ id: string }>('/exports/masked-users', 'POST', selection, exportAttempt.current.key)
       exportAttempt.current = undefined
       onOpenJob(job.id)
-    } catch {
-      setError('사용자 목록 내보내기를 접수하지 못했어요. 대상과 권한을 다시 확인해 주세요.')
+    } catch (failure) {
+      if ('previewId' in selection && failure instanceof AdminAccountError && [404, 409].includes(failure.status)) {
+        setExportPreview(undefined)
+        setError('CSV 대상이 변경되었거나 확인 시간이 지났어요. 대상을 다시 확인해 주세요.')
+      } else {
+        setError('사용자 목록 내보내기를 접수하지 못했어요. 대상과 권한을 다시 확인해 주세요.')
+      }
     } finally {
       setExporting(false)
     }
@@ -180,6 +203,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     setError(undefined)
     setLoading(true)
     setChecked([])
+    setExportPreview(undefined)
     if (userListQuery(query.toString()).toString() === search.replace(/^\?/, '')) refreshUsers()
     else onSelect(undefined, query)
   }
@@ -261,8 +285,8 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
           {operator && <Space wrap>
             <Button disabled={loading || exporting || currentSelection.length === 0}
               onClick={() => void exportUsers({ userIds: currentSelection })}>선택한 사용자 CSV</Button>
-            <Button disabled={loading || exporting || !list?.total}
-              onClick={() => void exportUsers({ filter: filters })}>필터 전체 사용자 CSV</Button>
+            <Button disabled={loading || exporting || !list?.total} loading={exportPreviewLoading}
+              onClick={() => void previewExport()}>필터 전체 사용자 CSV</Button>
             <Button disabled={loading || currentSelection.length === 0} onClick={() => onStartCampaign(currentSelection)}>
               선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
             </Button>
@@ -280,6 +304,14 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               }
             }}>필터 전체 CRM 대상 확인</Button>
           </Space>}
+          {operator && csvPreview && <Alert type="info" showIcon
+            title={`CSV 내보내기 ${csvPreview.eligible}명 · 제외 ${csvPreview.excluded}명`}
+            description={`확인 기한 ${formatDate(csvPreview.expiresAt)} (KST)`}
+            action={<Space wrap>
+              <Button disabled={csvPreview.eligible === 0} loading={exporting}
+                onClick={() => void exportUsers({ previewId: csvPreview.previewId })}>확정된 대상으로 CSV 요청</Button>
+              <Button disabled={exporting} onClick={() => setExportPreview(undefined)}>닫기</Button>
+            </Space>} />}
           {operator && campaignPreview && <Alert type="info" showIcon
             title={`검색 결과 ${campaignPreview.total}명 · 활성 계정 ${campaignPreview.eligible}명 · 제외 ${campaignPreview.excluded}명`}
             description="발송 미리보기에서 알림 동의와 기기 상태를 다시 확인합니다."
