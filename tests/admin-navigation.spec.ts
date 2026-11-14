@@ -508,6 +508,32 @@ test('news drafts attach only the validated upload id', async ({ page }) => {
   expect((await saved).postDataJSON()).toMatchObject({ fields: { mediaId: id } })
 })
 
+test('job detail exposes the CSV download when a queued export completes', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page, ['OPERATOR'])
+  let completed = false
+  let reads = 0
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => {
+    reads++
+    return route.fulfill({ json: {
+      id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS',
+      status: completed ? 'COMPLETED' : 'QUEUED', processed: completed ? 1 : 0,
+      total: 1, retryCount: 0, overdue: false,
+    } })
+  })
+  await page.goto('/admin/jobs?id=' + adminId)
+  const dialog = page.getByRole('dialog', { name: '작업 상세' })
+  const download = dialog.getByRole('button', { name: '사용자 목록 CSV 다운로드' })
+  await expect(dialog.getByText('접수', { exact: true })).toBeVisible()
+  await expect(download).toHaveCount(0)
+  completed = true
+  await page.clock.runFor(5_100)
+  await expect(download).toBeVisible()
+  const completedReads = reads
+  await page.clock.runFor(15_000)
+  expect(reads).toBe(completedReads)
+})
+
 test('job monitor retries only eligible failures and reuses the key after an uncertain response', async ({ page }, testInfo) => {
   await fixture(page, ['ANALYST'])
   const id = '2f671c72-e054-4221-8fd2-5a70dc090671'

@@ -99,12 +99,25 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
   useEffect(() => {
     if (!selected) return
     const abort = new AbortController()
-    void read<Job>(root + '/' + selected, abort.signal).then((result) => {
-      if (!abort.signal.aborted) setDetail(result)
-    }).catch((failure: Error) => {
-      if (!abort.signal.aborted) setDetailError(failure.message)
-    })
-    return () => abort.abort()
+    let timer: number | undefined
+    async function load() {
+      try {
+        const result = await read<Job>(root + '/' + selected, abort.signal)
+        if (abort.signal.aborted) return
+        setDetail(result)
+        if (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(result.kind) &&
+          ['QUEUED', 'RUNNING'].includes(result.status)) {
+          timer = window.setTimeout(() => void load(), 5_000)
+        }
+      } catch (failure) {
+        if (!abort.signal.aborted) setDetailError(failure instanceof Error ? failure.message : '작업을 불러오지 못했습니다.')
+      }
+    }
+    void load()
+    return () => {
+      abort.abort()
+      window.clearTimeout(timer)
+    }
   }, [selected, refresh])
 
   function reload() {
@@ -198,7 +211,8 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
     </Space>
     <Modal title="작업 상세" open={selected != null} onCancel={() => { setSelected(undefined); setCancelReason(undefined); setRetryReason(undefined) }}
       footer={null} width={680}>
-      {detailError ? <Alert type="error" title={detailError} /> : !detail ? <Typography.Text>불러오는 중</Typography.Text> :
+      {detailError ? <Alert type="error" title={detailError}
+        action={<Button size="small" onClick={reload}>다시 조회</Button>} /> : !detail ? <Typography.Text>불러오는 중</Typography.Text> :
         <Space orientation="vertical" style={{ display: 'flex' }}>
         <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[
           { key: 'id', label: '작업 ID', span: 'filled', children: <Typography.Text copyable>{detail.id}</Typography.Text> },
