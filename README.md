@@ -19,7 +19,7 @@ Chrome을 쓰지 않는 환경에서는 `npx playwright install chromium` 후 `n
 
 1. 검증한 `dist`에서 `tar -C dist -czf dist.tar.gz .`로 아카이브를 생성한다. 관리자 환경에는 검증한 아카이브만 올린다.
 2. 필요 시 Vultr 서버에서 `bash configure-backend.sh staging` 또는 `production`을 실행한다. 환경별 `FINSIGHT_ADMIN_ORIGIN`을 지정하고 최초 한 번만 MFA 암호화 키를 만든다. 각 키는 DB 백업과 함께 별도로 보호한다. 기존 키 변경 시 해당 환경의 TOTP 암호문을 읽을 수 없다.
-3. 서버에서 `bash publish.sh staging dist.tar.gz`를 실행하고 SSH 터널로 MFA와 주요 화면을 검증한다. 동일 아카이브로 `bash publish.sh production dist.tar.gz`를 실행한다. 아카이브 SHA-256으로 릴리스를 고정하고 `current` 심볼릭 링크를 원자적으로 갱신한다.
+3. 서버에서 `bash publish.sh staging dist.tar.gz`를 실행하고 SSH 터널로 MFA와 주요 화면을 검증한다. 동일 아카이브로 `bash publish.sh production dist.tar.gz`를 실행한다. 아카이브 SHA-256으로 릴리스를 고정하고 `current` 심볼릭 링크를 원자적으로 갱신한다. 배포 전에 열린 탭의 동적 로딩을 위해 직전 릴리스의 해시 자산도 `previous`에서 제공한다.
 4. Caddy 최초 설정 또는 변경 시 기존 API 설정에 `deploy/Caddyfile`을 추가한다. 기존 Caddy 컨테이너의 `/data` 볼륨이 아카이브를 푼 경로를 제공한다. 후보 설정을 `caddy validate --adapter caddyfile --config`로 검사하고, 기존 파일을 백업한 뒤 `caddy reload --config /etc/caddy/Caddyfile`을 실행한다.
 5. HTTPS 로그인 화면, SPA 직접 링크, `/api/v1/admin/auth/csrf`의 200, 세션 없는 `/api/v1/admin/auth/me`의 401을 확인한다. `api.finsight.life`와 `staging.finsight.life`의 `/actuator/health`는 200을, 관리자 경로는 404를 반환해야 한다.
 
