@@ -43,6 +43,28 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('filtered user export sends the applied filters and opens its job', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
+    items: [], page: 1, size: 20, total: 25,
+  } }))
+  await page.route('**/api/v1/admin/exports/masked-users', (route) => route.fulfill({
+    status: 202, json: { id: adminId, status: 'QUEUED', format: 'CSV' },
+  }))
+  await page.route('**/api/v1/admin/jobs/' + adminId, (route) => route.fulfill({ json: {
+    id: adminId, kind: 'MASKED_USERS', status: 'COMPLETED', scope: 'MASKED_USERS',
+    processed: 1, total: 1, retryCount: 0, overdue: false,
+  } }))
+  await page.goto('/admin/users?includeNoDiagnosis=true')
+  const pending = page.waitForRequest((request) => request.url().endsWith('/exports/masked-users'))
+  await page.getByRole('button', { name: '필터 전체 사용자 CSV' }).click()
+  const request = await pending
+  expect(request.postDataJSON()).toEqual({ filter: { includeNoDiagnosis: true } })
+  expect(request.headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/)
+  await expect(page).toHaveURL(new RegExp('/admin/jobs\\?id=' + adminId + '$'))
+  await expect(page.getByRole('button', { name: '사용자 목록 CSV 다운로드' })).toBeVisible()
+})
+
 test('filtered CRM drafts use a server preview rather than user IDs', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: { items: [], page: 1, size: 20, total: 25 } }))

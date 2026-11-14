@@ -17,6 +17,7 @@ const kinds: Record<string, string> = {
   DATA_DELETION: '서비스 데이터 삭제', ACCOUNT_WITHDRAWAL: '회원탈퇴',
   DASHBOARD_AGGREGATE: '대시보드 집계 내보내기',
   CONTENT_PERFORMANCE: '콘텐츠 성과 내보내기',
+  MASKED_USERS: '마스킹 사용자 목록 CSV',
   PII_RAW: '개인정보 원문 CSV',
 }
 const statuses: Record<string, string> = {
@@ -28,6 +29,7 @@ const scopes: Record<string, string> = {
   SELECTED_USERS: '선정 사용자', SEGMENT: '저장된 세그먼트', ACCOUNT_FILE: '사용자 내보내기 파일',
   SERVICE_DATA: '서비스 데이터', ACCOUNT: '계정 및 서비스 데이터',
   DASHBOARD_FILTER: '대시보드 필터 범위', CONTENT_FILTER: '콘텐츠 성과 필터 범위',
+  MASKED_USERS: '요청 시 확정한 사용자',
   PROFILE: '이메일·가입 프로필', ANSWERS: '선택한 회차의 원응답',
 }
 const stages: Record<string, string> = {
@@ -76,7 +78,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
   const retryRequest = useRef<{ jobId: string; reason: string; requeueCount?: number; key: string }>(undefined)
   const deletion = detail?.kind === 'DATA_DELETION' || detail?.kind === 'ACCOUNT_WITHDRAWAL'
   const visibleKinds = [
-    ...(operator ? ['CAMPAIGN', 'BULK_TAG'] : []),
+    ...(operator ? ['CAMPAIGN', 'BULK_TAG', 'MASKED_USERS'] : []),
     ...(privacy ? ['APP_EXPORT', 'DATA_DELETION', 'ACCOUNT_WITHDRAWAL', 'PII_RAW'] : []),
     ...(analyst ? ['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE'] : []),
   ]
@@ -215,10 +217,12 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
           ...(detail.nextRunAt ? [{ key: 'next-run', label: '다음 시도 (KST)', children: date(detail.nextRunAt) }] : []),
           { key: 'error', label: '오류 코드', children: detail.errorCode ?? '—' },
         ]} />
-        {['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE'].includes(detail.kind) && detail.status === 'COMPLETED' && !detail.errorCode
-          && <Button type="primary" loading={busy} onClick={() => void exportAction('download')}>집계 파일 다운로드</Button>}
+        {['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(detail.kind) && detail.status === 'COMPLETED' && !detail.errorCode
+          && <Button type="primary" loading={busy} onClick={() => void exportAction('download')}>
+            {detail.kind === 'MASKED_USERS' ? '사용자 목록 CSV 다운로드' : '집계 파일 다운로드'}
+          </Button>}
         {((detail.kind === 'PII_RAW' && detail.status === 'QUEUED') ||
-          (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE'].includes(detail.kind) && ['QUEUED', 'RUNNING'].includes(detail.status))) && (cancelReason == null
+          (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(detail.kind) && ['QUEUED', 'RUNNING'].includes(detail.status))) && (cancelReason == null
           ? <Button danger onClick={() => setCancelReason('')}>내보내기 취소</Button>
           : <Space orientation="vertical" style={{ display: 'flex' }}>
             <Input.TextArea aria-label="취소 사유" placeholder="취소 사유" value={cancelReason} maxLength={500}

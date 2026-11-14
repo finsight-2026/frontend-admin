@@ -209,6 +209,7 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
       } : undefined} />
       case 'users': return <AdminUsers actorId={actorId} operator={operator} supervisor={supervisor} privacy={privacy}
         userId={userId} search={route.search} onStartCampaign={(ids) => navigate(pathFor('campaigns'), ids)}
+        onOpenJob={(id) => { if (uuid.test(id)) navigate(pathFor('jobs') + '?id=' + id) }}
         onSelect={(id, query = route.searchParams) => {
           const search = userListQuery(query.toString()).toString()
           navigate(pathFor('users') + (id && uuid.test(id) ? '/' + id : '') + (search ? '?' + search : ''))

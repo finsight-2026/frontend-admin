@@ -1,6 +1,6 @@
 import { adminFetch } from './adminFetch'
 import { Alert, Button, Card, Checkbox, Descriptions, Empty, Form, Input, Pagination, Select, Space, Spin, Table } from 'antd'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AdminBulkTagPanel from './AdminBulkTagPanel'
 import AdminUserNotes from './AdminUserNotes'
 import AdminPiiPanel from './AdminPiiPanel'
@@ -61,10 +61,11 @@ async function get<T>(path: string, signal: AbortSignal) {
   return response.json() as Promise<T>
 }
 
-export default function AdminUsers({ actorId, operator, supervisor, privacy, userId: selected, search, onSelect, onStartCampaign }: {
+export default function AdminUsers({ actorId, operator, supervisor, privacy, userId: selected, search, onSelect, onStartCampaign, onOpenJob }: {
   actorId: string; operator: boolean; supervisor: boolean; privacy: boolean
   userId?: string; search: string; onSelect: (id?: string, query?: URLSearchParams) => void
   onStartCampaign: (target: CampaignDraftTarget) => void
+  onOpenJob: (id: string) => void
 }) {
   const { filters, page } = useMemo(() => {
     const query = userListQuery(search)
@@ -88,6 +89,8 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const [dataRevision, setDataRevision] = useState(0)
   const [checked, setChecked] = useState<string[]>([])
   const [targetLoading, setTargetLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const exportAttempt = useRef<{ fingerprint: string; key: string }>(undefined)
   const [targetPreview, setTargetPreview] = useState<{ search: string; data: CampaignTargetPreview }>()
   const campaignPreview = targetPreview?.search === search ? targetPreview?.data : undefined
   const refreshUsers = useCallback(() => setDataRevision((value) => value + 1), [])
@@ -148,6 +151,24 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   function selectUser(id?: string) {
     setError(undefined)
     onSelect(id)
+  }
+
+  async function exportUsers(selection: { userIds: string[] } | { filter: UserFilters }) {
+    setExporting(true)
+    setError(undefined)
+    const fingerprint = JSON.stringify(selection)
+    if (exportAttempt.current?.fingerprint !== fingerprint) {
+      exportAttempt.current = { fingerprint, key: crypto.randomUUID() }
+    }
+    try {
+      const job = await accountWrite<{ id: string }>('/exports/masked-users', 'POST', selection, exportAttempt.current.key)
+      exportAttempt.current = undefined
+      onOpenJob(job.id)
+    } catch {
+      setError('사용자 목록 내보내기를 접수하지 못했어요. 대상과 권한을 다시 확인해 주세요.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   function applyFilters(values: UserFilters, nextPage: number) {
@@ -238,6 +259,10 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
                 [key, typeof value === 'string' ? value.trim() || undefined : value]),
             )} changed={refreshUsers} />}
           {operator && <Space wrap>
+            <Button disabled={loading || exporting || currentSelection.length === 0}
+              onClick={() => void exportUsers({ userIds: currentSelection })}>선택한 사용자 CSV</Button>
+            <Button disabled={loading || exporting || !list?.total}
+              onClick={() => void exportUsers({ filter: filters })}>필터 전체 사용자 CSV</Button>
             <Button disabled={loading || currentSelection.length === 0} onClick={() => onStartCampaign(currentSelection)}>
               선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
             </Button>
