@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import AdminWorkspace from './AdminWorkspace'
 import { adminSessionExpired } from './adminFetch'
+import AdminScreenErrorBoundary from './AdminScreenErrorBoundary'
 
 const AdminEnrollment = lazy(() => import('./AdminEnrollment'))
 const AdminPasswordReset = lazy(() => import('./AdminPasswordReset'))
@@ -134,15 +135,20 @@ export default function AdminLogin() {
       <h1>관리자 백오피스</h1>
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         {error && <Alert title={error} type="error" showIcon />}
-        {invitation ? <Suspense fallback={<Spin aria-label="초대 불러오는 중" />}>
-          <AdminEnrollment token={invitation} onClose={() => setInvitation(undefined)} />
-        </Suspense> : resetToken || resetRequest ? <Suspense fallback={<Spin aria-label="재설정 화면 불러오는 중" />}>
-          <AdminPasswordReset token={resetToken} onClose={(changed) => {
-            setResetToken(undefined)
-            setResetRequest(false)
-            if (changed) setIdentity(undefined)
-          }} />
-        </Suspense> : checking ? <Spin aria-label="세션 확인 중" /> : challenge ? (
+        {invitation ? <AdminScreenErrorBoundary key="invitation" onClose={() => setInvitation(undefined)}>
+          <Suspense fallback={<Spin aria-label="초대 불러오는 중" />}>
+            <AdminEnrollment token={invitation} onClose={() => setInvitation(undefined)} />
+          </Suspense>
+        </AdminScreenErrorBoundary> : resetToken || resetRequest ? <AdminScreenErrorBoundary key="reset"
+          onClose={resetToken ? () => setResetToken(undefined) : undefined}>
+          <Suspense fallback={<Spin aria-label="재설정 화면 불러오는 중" />}>
+            <AdminPasswordReset token={resetToken} onClose={(changed) => {
+              setResetToken(undefined)
+              setResetRequest(false)
+              if (changed) setIdentity(undefined)
+            }} />
+          </Suspense>
+        </AdminScreenErrorBoundary> : checking ? <Spin aria-label="세션 확인 중" /> : challenge ? (
           <Form form={mfa} layout="vertical" onFinish={({ code }) => submit(async () => {
             setIdentity(await write<Identity>('/mfa', recovery
               ? { challengeId: challenge.challengeId, recoveryCode: code.trim().toUpperCase() }

@@ -2,6 +2,7 @@ import { Alert, Button, Result, Space, Spin, Tag } from 'antd'
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { AdminDirtyContext, userListQuery } from './adminNavigation'
 import { adminRequestDelay } from './adminFetch'
+import AdminScreenErrorBoundary from './AdminScreenErrorBoundary'
 
 const AdminNotices = lazy(() => import('./AdminNotices'))
 const AdminNews = lazy(() => import('./AdminNews'))
@@ -258,11 +259,13 @@ export default function AdminWorkspace({ identity, busy, error, logout, onSelfCh
         {error && <Alert title={error} type="error" showIcon />}
         {delays.size > 0 && <Alert type="info" showIcon title="응답이 10초 이상 지연되고 있어요."
           action={readRetries.length > 0 && <Button size="small" onClick={() => readRetries.forEach((retry) => retry())}>조회 재시도</Button>} />}
-        <Suspense fallback={<Spin aria-label="화면을 불러오는 중" />}>
-          {!current ? <Result status="404" title="페이지를 찾을 수 없어요." />
-            : !canAccess(current) ? <Result status="403" title="이 화면에 접근할 권한이 없어요." />
-            : page(current.key)}
-        </Suspense>
+        <AdminScreenErrorBoundary key={current?.key}>
+          <Suspense fallback={<Spin aria-label="화면을 불러오는 중" />}>
+            {!current ? <Result status="404" title="페이지를 찾을 수 없어요." />
+              : !canAccess(current) ? <Result status="403" title="이 화면에 접근할 권한이 없어요." />
+              : page(current.key)}
+          </Suspense>
+        </AdminScreenErrorBoundary>
       </main>
     </div>
   </AdminDirtyContext.Provider>

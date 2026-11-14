@@ -29,6 +29,11 @@ fi
 
 previous=$(readlink "$root/current" || true)
 if [[ -n "$previous" && "$previous" != "releases/$release" ]]; then
+    older=$(readlink "$root/previous" || true)
+    if [[ -n "$older" && "$older" != "releases/$release" ]]; then
+        ln -s "$older" "$pending/older"
+        mv -Tf "$pending/older" "$root/older"
+    fi
     ln -s "$previous" "$pending/previous"
     mv -Tf "$pending/previous" "$root/previous"
 fi
