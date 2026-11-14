@@ -1,0 +1,48 @@
+(finsight_admin) {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+	}
+
+	@admin_api path /api/v1/admin /api/v1/admin/*
+	handle @admin_api {
+		header Cache-Control no-store
+		reverse_proxy {args[0]} {
+			header_up -Forwarded
+			header_up -X-Forwarded-Port
+			header_up -X-Forwarded-Prefix
+		}
+	}
+
+	@other_api path /api /api/* /actuator /actuator/*
+	handle @other_api {
+		respond 404
+	}
+
+	root * {args[1]}
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+	@files path /fonts/* /favicon.svg
+	handle @files {
+		file_server
+	}
+	handle {
+		header Cache-Control no-store
+		rewrite * /index.html
+		file_server
+	}
+}
+
+https://localhost:18443 {
+	bind 127.0.0.1
+	tls internal
+	import finsight_admin 127.0.0.1:18081 /data/finsight-admin/staging/current
+}
+
+admin.finsight.life {
+	import finsight_admin 127.0.0.1:18080 /data/finsight-admin/production/current
+}

@@ -1,0 +1,118 @@
+@font-face {
+  font-family: Pretendard;
+  src: url('/fonts/Pretendard-Regular.otf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Pretendard;
+  src: url('/fonts/Pretendard-Medium.otf') format('opentype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Pretendard;
+  src: url('/fonts/Pretendard-SemiBold.otf') format('opentype');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+:root {
+  font-family: Pretendard, system-ui, sans-serif;
+  --Primary: #C8FF00;
+  --Error: #C13515;
+  --orange_100: #FFEEE2;
+  --orange_200: #FBEBD7;
+  --orange_300: #FFAD77;
+  --orange_400: #FFA058;
+  --orange_500: #FF791B;
+  --orange_600: #502304;
+  --red_100: #FFF0F0;
+  --red_200: #FFCBD4;
+  --red_300: #FF8BA1;
+  --red_400: #FF5C7D;
+  --red_500: #FF1550;
+  --red_600: #AB002B;
+  --green_100: #E8F7ED;
+  --green_200: #B4EBDA;
+  --green_300: #00DF8D;
+  --green_400: #00C87E;
+  --green_500: #00AB6B;
+  --green_600: #006F4D;
+  --blue_100: #EAF2FF;
+  --blue_200: #DFEDFF;
+  --blue_300: #B7D2FF;
+  --blue_400: #8AB6FE;
+  --blue_500: #2B78F5;
+  --blue_600: #165CD2;
+  --aqua_100: #E4F9FC;
+  --aqua_500: #00C7D9;
+  --lime_100: #F2FFD9;
+  --lime_500: #82C600;
+  --yellow_100: #FDF6DE;
+  --yellow_500: #FFC300;
+  --gray_50: #F5F6F6;
+  --gray_100: #F1F2F3;
+  --gray_200: #E9EAEA;
+  --gray_300: #DDDDDD;
+  --gray_400: #BABABA;
+  --gray_500: #A0A1A3;
+  --gray_600: #909499;
+  --gray_700: #696C70;
+  --gray_750: #3C3D41;
+  --gray_800: #2C2F33;
+  --gray_900: #1D1F21;
+  --gray_1000: #0F1112;
+  --NeonLime_50: #F8FFEC;
+  --NeonLime_100: #F1FFD8;
+  --NeonLime_200: #E9FFBE;
+  --NeonLime_300: #E1FFA2;
+  --NeonLime_400: #D9FF83;
+  --NeonLime_500: #D0FF5A;
+  --NeonLime_600: #C8FF00;
+  --NeonLime_700: #9ECA00;
+  --NeonLime_800: #719200;
+  --NeonLime_900: #455B00;
+  --slate_400: #63748A;
+  --slate_500: #495767;
+  --slate_600: #353A41;
+  --white: #FFFFFF;
+  --black: #000000;
+  --display_sb_38: 600 38px/1.4 Pretendard, system-ui, sans-serif;
+  --display_sb_38-tracking: 0;
+  --display_sb_28: 600 28px/1.4 Pretendard, system-ui, sans-serif;
+  --display_sb_28-tracking: 0;
+  --display_sb_22: 600 22px/1.4 Pretendard, system-ui, sans-serif;
+  --display_sb_22-tracking: 0;
+  --title_sb_18: 600 18px/1.4 Pretendard, system-ui, sans-serif;
+  --title_sb_18-tracking: 0;
+  --title_m_18: 500 18px/1.4 Pretendard, system-ui, sans-serif;
+  --title_m_18-tracking: 0;
+  --title_r_18: 400 18px/1.4 Pretendard, system-ui, sans-serif;
+  --title_r_18-tracking: 0;
+  --body_sb_16: 600 16px/1.4 Pretendard, system-ui, sans-serif;
+  --body_sb_16-tracking: 0;
+  --body_m_16: 500 16px/1.4 Pretendard, system-ui, sans-serif;
+  --body_m_16-tracking: 0;
+  --body_r_16: 400 16px/1.4 Pretendard, system-ui, sans-serif;
+  --body_r_16-tracking: 0;
+  --body_sb_14: 600 14px/1.4 Pretendard, system-ui, sans-serif;
+  --body_sb_14-tracking: -0.02em;
+  --body_m_14: 500 14px/1.4 Pretendard, system-ui, sans-serif;
+  --body_m_14-tracking: -0.02em;
+  --body_r_14: 400 14px/1.4 Pretendard, system-ui, sans-serif;
+  --body_r_14-tracking: -0.02em;
+  --label_m_12: 500 12px/1.4 Pretendard, system-ui, sans-serif;
+  --label_m_12-tracking: -0.02em;
+  --label_r_12: 400 12px/1.4 Pretendard, system-ui, sans-serif;
+  --label_r_12-tracking: -0.02em;
+  --caption_m_10: 500 10px/1.4 Pretendard, system-ui, sans-serif;
+  --caption_m_10-tracking: -0.02em;
+  --caption_r_10: 400 10px/1.4 Pretendard, system-ui, sans-serif;
+  --caption_r_10-tracking: -0.02em;
+}

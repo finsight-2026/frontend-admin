@@ -1,0 +1,137 @@
+body {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100vh;
+  color: var(--white);
+  background: var(--gray_1000);
+}
+
+.admin-entry {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 35rem;
+  margin-inline: auto;
+  padding: 4rem 1.5rem 2rem;
+}
+
+.admin-entry h1 {
+  margin: 0.75rem 0 1.5rem;
+  font: var(--display_sb_28);
+  letter-spacing: var(--display_sb_28-tracking);
+}
+
+.admin-workspace {
+  padding: clamp(1rem, 4vw, 3rem);
+  max-width: 90rem;
+  margin-inline: auto;
+}
+
+.admin-user-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0 1rem;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  padding: 1rem max(1rem, calc((100% - 88rem) / 2));
+  background: var(--gray_900);
+  border-bottom: 1px solid var(--gray_750);
+}
+
+.admin-brand {
+  color: var(--white);
+  font: var(--display_sb_28);
+  text-decoration: none;
+}
+
+.admin-identity {
+  overflow-wrap: anywhere;
+}
+
+.admin-workspace {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2rem);
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.admin-sidebar {
+  align-self: start;
+}
+
+.admin-menu section + section {
+  margin-top: 1.125rem;
+}
+
+.admin-menu h2 {
+  margin: 0 0 0.375rem;
+  padding-inline: 0.625rem;
+  color: var(--gray_400);
+  font-size: 0.8125rem;
+}
+
+.admin-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-menu a {
+  display: block;
+  padding: 0.625rem;
+  border-radius: 0.375rem;
+  color: var(--white);
+  text-decoration: none;
+}
+
+.admin-menu a:hover {
+  background: var(--gray_800);
+}
+
+.admin-menu a[aria-current="page"] {
+  background: var(--gray_800);
+  color: var(--lime_100);
+  font-weight: 600;
+}
+
+.admin-menu-toggle.ant-btn {
+  display: none;
+}
+
+.admin-page {
+  min-width: 0;
+}
+
+.admin-page > .ant-alert {
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .admin-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-menu-toggle.ant-btn {
+    display: inline-flex;
+  }
+
+  .admin-menu {
+    display: none;
+  }
+
+  .admin-menu.is-open {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .admin-menu section + section {
+    margin-top: 0;
+  }
+}
