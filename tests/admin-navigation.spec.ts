@@ -904,3 +904,44 @@ test('news edition selects an exact article revision and submits its expected ed
   await page.screenshot({ path: testInfo.outputPath('BO-03-news-edition-version.png'), animations: 'disabled' })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
+
+test('comparison minimum prompts for OTP and preserves the proposed change', async ({ page }) => {
+  await fixture(page, ['SUPER_ADMIN'])
+  const settings = '**/api/v1/admin/comparison-snapshots/settings'
+  const body = { minimum: 35, reason: '비교 공개 최소 표본 변경 검증', expectedVersion: 2 }
+  let saved = false
+  let attempts = 0
+  let verified = false
+  await page.route(settings, (route) => route.fulfill({ json: [
+    { type: 'DEBT', minimum: saved ? 35 : 30, version: saved ? 3 : 2 },
+  ] }))
+  await page.route(settings + '/DEBT', (route) => {
+    attempts++
+    expect(route.request().postDataJSON()).toEqual(body)
+    if (!verified) return route.fulfill({ status: 428 })
+    saved = true
+    return route.fulfill({ json: { type: 'DEBT', minimum: 35, version: 3 } })
+  })
+  await page.route('**/api/v1/admin/auth/reauth', (route) => {
+    verified = route.request().postDataJSON().code === '234567'
+    return route.fulfill({ status: verified ? 204 : 422 })
+  })
+  await page.goto('/admin/comparison')
+  await page.getByRole('combobox', { name: '표본 기준 유형' }).click()
+  await page.getByTitle('부채부담형 · 30', { exact: true }).click()
+  await page.getByLabel('최소 표본 (빈칸은 미설정)').fill('35')
+  await page.getByLabel('변경 사유').fill(body.reason)
+  await page.getByRole('button', { name: '표본 기준 저장' }).click()
+  const modal = page.getByRole('dialog', { name: '표본 기준 변경 재인증' })
+  const code = modal.getByLabel('인증 앱의 6자리 코드')
+  await expect(modal.getByRole('button', { name: '재인증 후 저장' })).toBeDisabled()
+  await code.fill('123456')
+  await modal.getByRole('button', { name: '재인증 후 저장' }).click()
+  await expect(modal.getByRole('alert')).toContainText('입력한 값과 인증 코드')
+  expect(attempts).toBe(1)
+  await code.fill('234567')
+  await modal.getByRole('button', { name: '재인증 후 저장' }).click()
+  await expect(modal).toBeHidden()
+  await expect(page.getByText('부채부담형 · 35', { exact: true })).toBeVisible()
+  expect(attempts).toBe(2)
+})
