@@ -43,6 +43,43 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('comparison review shows the live sample and confirms publication before submitting', async ({ page }) => {
+  await fixture(page, ['SUPER_ADMIN'])
+  const root = '**/api/v1/admin/comparison-snapshots'
+  const live = {
+    id: adminId, type: 'DEBT', from: '2026-10-01', to: '2026-10-30', formulaVersion: 'yfsi-v1',
+    datasetVersion: 1, sampleSize: 35, excludedSize: 0, status: 'APPROVED', version: 2, metrics: {},
+  }
+  const draft = { ...live, id: targetUser, from: '2026-11-01', to: '2026-11-13', sampleSize: 29, status: 'IN_REVIEW' }
+  const writes: object[] = []
+  await page.route(root, (route) => route.fulfill({ json: [draft, live] }))
+  await page.route(root + '/settings', (route) => route.fulfill({ json: [{ type: 'DEBT', minimum: 30, version: 1 }] }))
+  await page.route(root + '/publications', (route) => route.fulfill({ json: [{
+    id: adminId, snapshotId: live.id, type: 'DEBT', status: 'ACTIVE',
+    startsAt: '2026-11-11T00:00:00Z', endsAt: '2026-11-30T00:00:00Z',
+  }] }))
+  await page.route(root + '/*/transitions', async (route) => {
+    writes.push(route.request().postDataJSON())
+    await route.fulfill({ json: live })
+  })
+  await page.goto('/admin/comparison')
+  await page.getByRole('row').filter({ hasText: '검토 중' }).getByRole('button', { name: '부채부담형' }).click()
+  await expect(page.getByText('표본이 공개 최소 기준에 미달해요.')).toBeVisible()
+  await expect(page.getByText('2026-10-01 ~ 2026-10-30 · 35명 · yfsi-v1')).toBeVisible()
+  await expect(page.getByRole('button', { name: '승인', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '집계 보기' }).click()
+  await page.getByRole('combobox', { name: '공개 작업' }).click()
+  await page.getByText('비공개', { exact: true }).click()
+  await page.getByLabel('비공개 사유').fill('공개 기간과 공지 정합성을 재검토합니다.')
+  await page.getByRole('button', { name: '공개 작업 적용' }).click()
+  const confirmation = page.getByRole('dialog', { name: '비공개 확인' })
+  await expect(confirmation).toBeVisible()
+  expect(writes).toHaveLength(0)
+  await confirmation.getByRole('button', { name: '비공개', exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ action: 'UNPUBLISH', expectedVersion: 2 })
+})
+
 test('keyboard focus stays visible and the workspace fits enlarged text on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 })
   await fixture(page, ['OPERATOR', 'ANALYST'], '운영관리자'.repeat(10))

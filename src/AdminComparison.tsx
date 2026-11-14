@@ -1,17 +1,23 @@
 import { adminFetch } from './adminFetch'
-import { Alert, Button, Card, Form, Grid, Input, Select, Space, Table } from 'antd'
+import { Alert, Button, Card, Descriptions, Form, Grid, Input, Modal, Select, Space, Table } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 
 type Snapshot = {
   id: string; type: string; from: string; to: string; formulaVersion: string
   datasetVersion: number; sampleSize: number; excludedSize: number; status: string; version: number
-  failureReason?: string; retryCount?: number; nextRunAt?: string
+  builtAt?: string; failureReason?: string; retryCount?: number; nextRunAt?: string
   metrics: Record<string, Cell | Record<string, Cell>>
 }
 type Cell = { n: number; mean: number }
 type Settings = { type: string; minimum: number | null; version: number }
 type Publication = { id: string; snapshotId: string; type: string; status: string; startsAt: string; endsAt: string }
-const metricKeys = ['YFSI_MEAN', 'EXTERNAL_AREA_MEAN', 'RESOURCE_DOMAIN_MEAN', 'PERCEIVED_STRESS_MEAN']
+const metricLabels: Record<string, string> = {
+  YFSI_MEAN: 'YFSI 평균', EXTERNAL_AREA_MEAN: '외부 압박 영역 평균',
+  RESOURCE_DOMAIN_MEAN: '대응자원 영역 평균', PERCEIVED_STRESS_MEAN: '체감 스트레스 평균',
+}
+const publicationActions = { PUBLISH: '즉시 게시', SCHEDULE: '예약', UNPUBLISH: '비공개' }
+type PublicationChange = { action: keyof typeof publicationActions; replacePublicationId?: string; reason?: string }
+type PendingPublication = { change: PublicationChange; snapshotId: string; version: number }
 
 const path = '/api/v1/admin/comparison-snapshots'
 const types = {
@@ -52,8 +58,12 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
   const [selected, setSelected] = useState<string>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [pendingPublication, setPendingPublication] = useState<PendingPublication>()
   const lastTransition = useRef<{ fingerprint: string; key: string } | undefined>(undefined)
   const current = items.find((item) => item.id === selected)
+  const live = publications.find((item) => item.type === current?.type && item.status === 'ACTIVE')
+  const liveSnapshot = items.find((item) => item.id === live?.snapshotId)
+  const minimum = settings.find((item) => item.type === current?.type)?.minimum
 
   async function refresh(signal?: AbortSignal) {
     const [snapshots, config, active] = await Promise.all([
@@ -79,11 +89,12 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
     return () => controller.abort()
   }, [])
 
-  async function run(operation: () => Promise<Snapshot>) {
+  async function run(operation: () => Promise<Snapshot>, onSaved?: () => void) {
     setBusy(true)
     setError(undefined)
     try {
       const snapshot = await operation()
+      onSaved?.()
       setItems((previous) => [snapshot, ...previous.filter((item) => item.id !== snapshot.id)])
       setSelected(snapshot.id)
       await refresh()
@@ -152,7 +163,11 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
         )}
         <p>현재 공개·예약 {publications.length}건</p>
         {publications.map((item) => (
-          <div key={item.id}>{types[item.type as keyof typeof types]} · {item.status === 'ACTIVE' ? '공개 중' : '예약'} · {item.id}</div>
+          <div key={item.id}>
+            {types[item.type as keyof typeof types]} · {item.status === 'ACTIVE' ? '공개 중' : '예약'} · {retryTime.format(new Date(item.startsAt))} ~ {retryTime.format(new Date(item.endsAt))} (KST)
+            {items.some((snapshot) => snapshot.id === item.snapshotId) &&
+              <Button type="link" onClick={() => setSelected(item.snapshotId)}>집계 보기</Button>}
+          </div>
         ))}
         <Table<Snapshot> rowKey="id" dataSource={items} scroll={md ? { x: 600 } : undefined} columns={[
           { title: '유형', dataIndex: 'type', render: (type: keyof typeof types, item) =>
@@ -165,12 +180,21 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
         {current && <>
           {!md && <p>집계 기간 {current.from} ~ {current.to} · 표본 {current.sampleSize}명 · 제외 {current.excludedSize}명</p>}
           <p>산식 버전 {current.formulaVersion} · 원천 버전 {current.datasetVersion}</p>
+          <Descriptions size="small" column={1} items={[
+            { key: 'builtAt', label: '집계 완료 (KST)', children: current.builtAt ? retryTime.format(new Date(current.builtAt)) : '—' },
+            { key: 'minimum', label: '공개 최소 표본', children: minimum == null ? '미설정' : minimum + '명' },
+            { key: 'live', label: '같은 유형의 현재 공개본', children: liveSnapshot
+              ? liveSnapshot.from + ' ~ ' + liveSnapshot.to + ' · ' + liveSnapshot.sampleSize + '명 · ' + liveSnapshot.formulaVersion
+              : live ? '공개 중 · 집계 목록에서 확인할 수 없습니다.' : '공개본 없음' },
+          ]} />
+          {current.status === 'IN_REVIEW' && (minimum == null || current.sampleSize < minimum) &&
+            <Alert type="warning" title={minimum == null ? '최소 표본 기준을 설정해야 승인할 수 있어요.' : '표본이 공개 최소 기준에 미달해요.'} />}
           {current.failureReason === 'SOURCE_CHANGED' && <Alert type="warning" title="원천 데이터가 바뀌었습니다. 집계를 다시 요청해주세요." />}
           {current.failureReason === 'BUILD_FAILED' && <Alert type="error" title="집계에 실패했습니다. 원인을 확인한 뒤 집계를 다시 요청해주세요." />}
           {current.nextRunAt && <Alert type="info" title={'다음 집계 시도 ' + retryTime.format(new Date(current.nextRunAt)) + ' (KST)'} />}
           {Object.entries(current.metrics).map(([key, value]) => (
             <div key={key}>
-              <strong>{key}</strong>
+              <strong>{metricLabels[key] ?? key}</strong>
               {'mean' in value && typeof value.mean === 'number'
                 ? <p>{value.mean}점 · {String(value.n)}명</p>
                 : <ul>{Object.entries(value).map(([area, cell]) =>
@@ -185,14 +209,14 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
               startsAt: values.startsAt + ':00+09:00', endsAt: values.endsAt + ':00+09:00', reason: values.reason,
             }))}>
               <Form.Item name="allowedMetrics" label="공개 허용 지표" rules={[{ required: true }]}>
-                <Select mode="multiple" options={metricKeys.map((value) => ({ value, label: value }))} />
+                <Select mode="multiple" options={Object.entries(metricLabels).map(([value, label]) => ({ value, label }))} />
               </Form.Item>
               <div className="admin-user-filters">
                 <Form.Item name="startsAt" label="공개 시작 (KST)" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item>
                 <Form.Item name="endsAt" label="공개 종료 (KST)" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item>
                 <Form.Item name="reason" label="승인 사유 (자기승인 필수)" rules={[{ max: 500 }]}><Input /></Form.Item>
               </div>
-              <Button htmlType="submit" loading={busy}>승인</Button>
+              <Button htmlType="submit" loading={busy} disabled={minimum == null || current.sampleSize < minimum}>승인</Button>
             </Form>
           )}
           {supervisor && current.status === 'IN_REVIEW' && (
@@ -205,17 +229,13 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
             </Form>
           )}
           {supervisor && current.status === 'APPROVED' && (
-            <Form key={current.id + '-publication'} layout="vertical" onFinish={(values: {
-              action: string; replacePublicationId?: string; reason?: string
-            }) => run(() => transition(current.id, {
-              ...values, expectedVersion: current.version,
-            }))}>
+            <Form<PublicationChange> key={current.id + '-publication'} layout="vertical" onFinish={(change) => {
+              setError(undefined)
+              setPendingPublication({ change, snapshotId: current.id, version: current.version })
+            }}>
               <div className="admin-user-filters">
                 <Form.Item name="action" label="공개 작업" rules={[{ required: true }]}>
-                  <Select options={[
-                    { value: 'PUBLISH', label: '즉시 게시' }, { value: 'SCHEDULE', label: '예약' },
-                    { value: 'UNPUBLISH', label: '비공개' },
-                  ]} />
+                  <Select options={Object.entries(publicationActions).map(([value, label]) => ({ value, label }))} />
                 </Form.Item>
                 <Form.Item name="replacePublicationId" label="교체할 공개본 ID">
                   <Select allowClear options={publications.filter((item) => item.type === current.type)
@@ -226,6 +246,16 @@ export default function AdminComparison({ operator, supervisor }: { operator: bo
               <Button htmlType="submit" loading={busy}>공개 작업 적용</Button>
             </Form>
           )}
+          {pendingPublication && <Modal open title={publicationActions[pendingPublication.change.action] + ' 확인'}
+            okText={publicationActions[pendingPublication.change.action]} cancelText="취소" confirmLoading={busy}
+            onCancel={() => { if (!busy) setPendingPublication(undefined) }}
+            onOk={() => void run(() => transition(pendingPublication.snapshotId, {
+              ...pendingPublication.change, expectedVersion: pendingPublication.version,
+            }), () => setPendingPublication(undefined))}>
+            <p>{types[current.type as keyof typeof types]} · {current.from} ~ {current.to} · 표본 {current.sampleSize}명</p>
+            {pendingPublication.change.replacePublicationId && <p>교체할 공개본 ID {pendingPublication.change.replacePublicationId}</p>}
+            {error && <Alert type="error" title={error} />}
+          </Modal>}
           {operator && current.status === 'READY' && (
             <Button loading={busy} onClick={() => run(() =>
               transition(current.id, { action: 'SUBMIT', expectedVersion: current.version }))}>
