@@ -126,6 +126,29 @@ for (const status of [404, 409]) {
   })
 }
 
+test('failed user refresh disables filtered bulk operations', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  let fail = false
+  await page.route('**/api/v1/admin/users?*', (route) => fail ? route.fulfill({ status: 503 }) :
+    route.fulfill({ json: { items: [], page: 1, size: 20, total: 2 } }))
+  await page.goto('/admin/users?includeNoDiagnosis=true')
+  const csv = page.getByRole('button', { name: '필터 전체 사용자 CSV' })
+  const crm = page.getByRole('button', { name: '필터 전체 CRM 대상 확인' })
+  const search = page.getByRole('button', { name: '조회', exact: true })
+  await expect(csv).toBeEnabled()
+  await expect(crm).toBeEnabled()
+  fail = true
+  await search.click()
+  await expect(page.getByText('요청을 완료하지 못했습니다.')).toBeVisible()
+  await expect(csv).toBeDisabled()
+  await expect(crm).toBeDisabled()
+  await expect(search).toHaveAttribute('aria-busy', 'false')
+  fail = false
+  await search.click()
+  await expect(csv).toBeEnabled()
+  await expect(crm).toBeEnabled()
+})
+
 test('filtered CRM drafts use a server preview rather than user IDs', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: { items: [], page: 1, size: 20, total: 25 } }))

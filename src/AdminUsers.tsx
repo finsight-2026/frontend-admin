@@ -74,8 +74,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     const filters: UserFilters = { ...Object.fromEntries(query), includeNoDiagnosis: query.has('includeNoDiagnosis') }
     return { filters, page }
   }, [search])
-  const [loadedList, setList] = useState<{ search: string; value: Page }>()
-  const list = loadedList?.search === search ? loadedList.value : undefined
+  const [loadedList, setList] = useState<{ search: string; revision: number; value: Page }>()
   const [loadedDetail, setDetail] = useState<Detail>()
   const [selectedDiagnosis, setDiagnosisId] = useState<{ owner: string; id: string }>()
   const [loadedDiagnosis, setDiagnosis] = useState<Diagnosis>()
@@ -87,6 +86,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const [tags, setTags] = useState<Tag[]>([])
   const [tagRevision, setTagRevision] = useState(0)
   const [dataRevision, setDataRevision] = useState(0)
+  const list = loadedList?.search === search && loadedList.revision === dataRevision ? loadedList.value : undefined
   const [checked, setChecked] = useState<string[]>([])
   const [targetLoading, setTargetLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -95,9 +95,13 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const csvPreview = exportPreview?.search === search && exportPreview.revision === dataRevision
     ? exportPreview.data : undefined
   const exportAttempt = useRef<{ fingerprint: string; key: string }>(undefined)
-  const [targetPreview, setTargetPreview] = useState<{ search: string; data: CampaignTargetPreview }>()
-  const campaignPreview = targetPreview?.search === search ? targetPreview?.data : undefined
-  const refreshUsers = useCallback(() => setDataRevision((value) => value + 1), [])
+  const [targetPreview, setTargetPreview] = useState<{ search: string; revision: number; data: CampaignTargetPreview }>()
+  const campaignPreview = targetPreview?.search === search && targetPreview.revision === dataRevision
+    ? targetPreview.data : undefined
+  const refreshUsers = useCallback(() => {
+    setLoading(true)
+    setDataRevision((value) => value + 1)
+  }, [])
   const [selectionSearch, setSelectionSearch] = useState(search)
   const currentSelection = selectionSearch === search ? checked.filter((id) => list?.items.some((user) => user.id === id)) : []
 
@@ -124,9 +128,12 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
       if (value === true) params.set(key, 'true')
     }
     get<Page>('?' + params, abort.signal).then((value) => {
-      if (!abort.signal.aborted) setList({ search, value })
+      if (!abort.signal.aborted) setList({ search, revision: dataRevision, value })
     }).catch((error: Error) => {
-      if (!abort.signal.aborted) setError(error.message)
+      if (!abort.signal.aborted) {
+        setList(undefined)
+        setError(error.message)
+      }
     }).finally(() => { if (!abort.signal.aborted) setLoading(false) })
     return () => abort.abort()
   }, [filters, page, search, dataRevision, selected])
@@ -204,8 +211,10 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
     setLoading(true)
     setChecked([])
     setExportPreview(undefined)
-    if (userListQuery(query.toString()).toString() === search.replace(/^\?/, '')) refreshUsers()
-    else onSelect(undefined, query)
+    setTargetPreview(undefined)
+    const next = userListQuery(query.toString())
+    if (next.toString() === userListQuery(search).toString()) refreshUsers()
+    else onSelect(undefined, next)
   }
 
   return (
@@ -259,7 +268,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
         <Space orientation="vertical" style={{ display: 'flex' }}>
           {operator && <TagCatalog tags={tags} changed={() => {
             setTagRevision((value) => value + 1)
-            setDataRevision((value) => value + 1)
+            refreshUsers()
           }} />}
           <Form<UserFilters> key={search} layout="vertical" initialValues={filters} onFinish={(values) => applyFilters(values, 1)}>
             <div className="admin-user-filters">
@@ -275,7 +284,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               <Form.Item name="to" label="종료일 (KST)"><Input type="date" /></Form.Item>
             </div>
             <Form.Item name="includeNoDiagnosis" valuePropName="checked"><Checkbox>완료 진단 없는 사용자 포함</Checkbox></Form.Item>
-            <Button htmlType="submit" type="primary" loading={loading}>조회</Button>
+            <Button htmlType="submit" type="primary" aria-label="조회" aria-busy={loading} loading={loading}>조회</Button>
           </Form>
           {operator && <AdminBulkTagPanel contextKey={JSON.stringify([filters, page, currentSelection])} loading={loading}
             tags={tags} selected={currentSelection} filter={Object.fromEntries(
@@ -296,7 +305,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               setTargetLoading(true)
               try {
                 const data = await accountWrite<CampaignTargetPreview>('/campaigns/target-preview', 'POST', filters)
-                setTargetPreview({ search, data })
+                setTargetPreview({ search, revision: dataRevision, data })
               } catch {
                 setError('필터 전체 CRM 대상을 확인하지 못했어요. 다시 시도해 주세요.')
               } finally {
