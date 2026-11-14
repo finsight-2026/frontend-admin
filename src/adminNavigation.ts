@@ -2,6 +2,9 @@ import { createContext, useContext, useEffect, useRef } from 'react'
 
 export const AdminDirtyContext = createContext<Set<symbol> | null>(null)
 
+export type CampaignTargetPreview = { previewId: string; total: number; eligible: number; excluded: number; expiresAt: string }
+export type CampaignDraftTarget = string[] | CampaignTargetPreview
+
 export const userIdPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const dateFilter = /^\d{4}-\d{2}-\d{2}$/
 const userFilterPatterns = {

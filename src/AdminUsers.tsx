@@ -5,7 +5,8 @@ import AdminBulkTagPanel from './AdminBulkTagPanel'
 import AdminUserNotes from './AdminUserNotes'
 import AdminPiiPanel from './AdminPiiPanel'
 import { TagCatalog, UserTagEditor, type Tag } from './AdminUserTags'
-import { userIdPattern, userListQuery, type UserFilters } from './adminNavigation'
+import { userIdPattern, userListQuery, type CampaignDraftTarget, type CampaignTargetPreview, type UserFilters } from './adminNavigation'
+import { accountWrite } from './adminAccountApi'
 
 type User = {
   id: string
@@ -63,7 +64,7 @@ async function get<T>(path: string, signal: AbortSignal) {
 export default function AdminUsers({ actorId, operator, supervisor, privacy, userId: selected, search, onSelect, onStartCampaign }: {
   actorId: string; operator: boolean; supervisor: boolean; privacy: boolean
   userId?: string; search: string; onSelect: (id?: string, query?: URLSearchParams) => void
-  onStartCampaign: (ids: string[]) => void
+  onStartCampaign: (target: CampaignDraftTarget) => void
 }) {
   const { filters, page } = useMemo(() => {
     const query = userListQuery(search)
@@ -86,6 +87,9 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
   const [tagRevision, setTagRevision] = useState(0)
   const [dataRevision, setDataRevision] = useState(0)
   const [checked, setChecked] = useState<string[]>([])
+  const [targetLoading, setTargetLoading] = useState(false)
+  const [targetPreview, setTargetPreview] = useState<{ search: string; data: CampaignTargetPreview }>()
+  const campaignPreview = targetPreview?.search === search ? targetPreview?.data : undefined
   const refreshUsers = useCallback(() => setDataRevision((value) => value + 1), [])
   const [selectionSearch, setSelectionSearch] = useState(search)
   const currentSelection = selectionSearch === search ? checked.filter((id) => list?.items.some((user) => user.id === id)) : []
@@ -233,10 +237,29 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
               Object.entries(filters).filter(([, value]) => value != null && value !== '').map(([key, value]) =>
                 [key, typeof value === 'string' ? value.trim() || undefined : value]),
             )} changed={refreshUsers} />}
-          {operator && <Button disabled={loading || currentSelection.length === 0}
-            onClick={() => onStartCampaign(currentSelection)}>
-            선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
-          </Button>}
+          {operator && <Space wrap>
+            <Button disabled={loading || currentSelection.length === 0} onClick={() => onStartCampaign(currentSelection)}>
+              선택한 사용자 {currentSelection.length}명으로 CRM 초안 작성
+            </Button>
+            <Button loading={targetLoading} disabled={loading || !list?.total} onClick={async () => {
+              setError(undefined)
+              setTargetPreview(undefined)
+              setTargetLoading(true)
+              try {
+                const data = await accountWrite<CampaignTargetPreview>('/campaigns/target-preview', 'POST', filters)
+                setTargetPreview({ search, data })
+              } catch {
+                setError('필터 전체 CRM 대상을 확인하지 못했어요. 다시 시도해 주세요.')
+              } finally {
+                setTargetLoading(false)
+              }
+            }}>필터 전체 CRM 대상 확인</Button>
+          </Space>}
+          {operator && campaignPreview && <Alert type="info" showIcon
+            title={`검색 결과 ${campaignPreview.total}명 · 활성 계정 ${campaignPreview.eligible}명 · 제외 ${campaignPreview.excluded}명`}
+            description="발송 미리보기에서 알림 동의와 기기 상태를 다시 확인합니다."
+            action={<Button disabled={campaignPreview.eligible === 0}
+              onClick={() => onStartCampaign(campaignPreview)}>확정된 대상으로 CRM 초안 작성</Button>} />}
           <Table<User> rowSelection={operator ? {
             selectedRowKeys: currentSelection,
             onChange: (keys) => { setSelectionSearch(search); setChecked(keys.map(String)) },

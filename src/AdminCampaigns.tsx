@@ -1,7 +1,8 @@
-import { useAdminUnsaved } from './adminNavigation'
+import { useAdminUnsaved, type CampaignDraftTarget } from './adminNavigation'
+import { accountWrite, AdminAccountError } from './adminAccountApi'
 import { adminFetch } from './adminFetch'
 import { Alert, Button, Card, Descriptions, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type Campaign = {
   id: string; name: string; status: string; version: number; segmentId?: string; segmentVersion?: number
@@ -65,12 +66,15 @@ async function write<T>(path: string, method: string, body: object, key?: string
   }).then((response) => decode<T>(response, key != null))
 }
 
-export default function AdminCampaigns({ initialUsers }: { initialUsers: string[] }) {
+export default function AdminCampaigns({ initialTarget }: { initialTarget?: CampaignDraftTarget }) {
   const [rows, setRows] = useState<Campaign[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [notices, setNotices] = useState<Notice[]>([])
-  const [editor, setEditor] = useState<Campaign | 'NEW' | undefined>(() => initialUsers.length ? 'NEW' : undefined)
-  const [draftUsers, setDraftUsers] = useState(initialUsers)
+  const [editor, setEditor] = useState<Campaign | 'NEW' | undefined>(() => initialTarget ? 'NEW' : undefined)
+  const [draftTarget, setDraftTarget] = useState(initialTarget)
+  const draftUsers = Array.isArray(draftTarget) ? draftTarget : []
+  const targetPreview = Array.isArray(draftTarget) ? undefined : draftTarget
+  const targetAttempt = useRef<{ payload: string; key: string }>(undefined)
   const { mark: markUnsaved } = useAdminUnsaved(editor != null)
   const [selection, setSelection] = useState<{ campaign: Campaign; preview: Preview }>()
   const [canceling, setCanceling] = useState<Campaign>()
@@ -159,7 +163,7 @@ export default function AdminCampaigns({ initialUsers }: { initialUsers: string[
   }
 
   function open(item: Campaign | 'NEW') {
-    setDraftUsers([])
+    setDraftTarget(undefined)
     setSelection(undefined)
     setReceipt(undefined)
     setEditor(item)
@@ -181,7 +185,19 @@ export default function AdminCampaigns({ initialUsers }: { initialUsers: string[
       scheduledAt: values.scheduledAt ? values.scheduledAt + ':00+09:00' : undefined,
     }
     await perform(async () => {
-      if (editor === 'NEW') await write('', 'POST', fields)
+      if (editor === 'NEW' && targetPreview) {
+        const draft = { previewId: targetPreview.previewId, name: fields.name, noticeRevisionId: fields.noticeRevisionId, scheduledAt: fields.scheduledAt }
+        const payload = JSON.stringify(draft)
+        if (targetAttempt.current?.payload !== payload) targetAttempt.current = { payload, key: crypto.randomUUID() }
+        try {
+          await accountWrite('/campaigns/from-target-preview', 'POST', draft, targetAttempt.current.key)
+        } catch (error) {
+          if (error instanceof AdminAccountError && (error.status === 404 || error.status === 409)) {
+            throw new Error('확정한 대상이 만료되었거나 바뀌었어요. 사용자 목록에서 대상을 다시 확인해 주세요.')
+          }
+          throw error
+        }
+      } else if (editor === 'NEW') await write('', 'POST', fields)
       else await write('/' + editor.id, 'PATCH', { fields, expectedVersion: editor.version })
       setEditor(undefined)
       reload()
@@ -246,7 +262,7 @@ export default function AdminCampaigns({ initialUsers }: { initialUsers: string[
       {editor && <Card size="small" title="캠페인 초안">
         <Form<Fields> onValuesChange={markUnsaved} key={editor === 'NEW' ? 'new' : editor.id + '/' + editor.version} layout="vertical" onFinish={save}
           disabled={busy} initialValues={editor === 'NEW' ? {
-            target: draftUsers.length ? 'USERS' : 'SEGMENT', userIds: draftUsers.join('\n'),
+            target: draftUsers.length || targetPreview ? 'USERS' : 'SEGMENT', userIds: draftUsers.join('\n'),
           } : {
             name: editor.name, target: editor.segmentId ? 'SEGMENT' : 'USERS',
             segmentRef: editor.segmentId ? editor.segmentId + '/' + editor.segmentVersion : undefined,
@@ -260,11 +276,13 @@ export default function AdminCampaigns({ initialUsers }: { initialUsers: string[
             <Form.Item name="scheduledAt" label="예약 시각 (KST)" extra="비워 두면 즉시 요청합니다. 운영 시간 밖 요청은 다음 09시에 예약됩니다.">
               <Input type="datetime-local" />
             </Form.Item>
-            <Form.Item name="target" label="대상 종류">
+            {!targetPreview && <Form.Item name="target" label="대상 종류">
               <Radio.Group options={[{ value: 'SEGMENT', label: '세그먼트' }, { value: 'USERS', label: '사용자 ID 목록' }]} />
-            </Form.Item>
+            </Form.Item>}
           </div>
-          <Form.Item noStyle shouldUpdate={(before, after) => before.target !== after.target}>
+          {targetPreview ? <Alert type="info" title={`필터에서 확정한 활성 계정 ${targetPreview.eligible}명`}
+            description={`대상 확인 만료 ${time.format(new Date(targetPreview.expiresAt))} (KST)`} />
+          : <Form.Item noStyle shouldUpdate={(before, after) => before.target !== after.target}>
             {({ getFieldValue }) => getFieldValue('target') === 'SEGMENT'
               ? <Form.Item name="segmentRef" label="세그먼트 조건 버전" rules={[{ required: true }]}><Select options={[
                   ...segments.map((item) => ({
@@ -275,7 +293,7 @@ export default function AdminCampaigns({ initialUsers }: { initialUsers: string[
                     ? [{ value: editor.segmentId + '/' + editor.segmentVersion, label: '저장한 조건 버전 ' + editor.segmentVersion }] : []),
                 ]} /></Form.Item>
               : <Form.Item name="userIds" label="사용자 ID (쉼표 또는 줄바꿈)" rules={[{ required: true, whitespace: true }]}><Input.TextArea /></Form.Item>}
-          </Form.Item>
+          </Form.Item>}
           <Space><Button type="primary" htmlType="submit" loading={busy}>초안 저장</Button>
             <Button onClick={() => setEditor(undefined)}>취소</Button></Space>
         </Form>

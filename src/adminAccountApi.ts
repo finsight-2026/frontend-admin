@@ -29,11 +29,11 @@ export async function accountRead<T>(path: string, signal?: AbortSignal) {
   return decode<T>(await adminFetch(root + path, { cache: 'no-store', signal }))
 }
 
-export async function accountWrite<T>(path: string, method: 'POST' | 'PATCH', body?: object) {
+export async function accountWrite<T>(path: string, method: 'POST' | 'PATCH', body?: object, key?: string) {
   const csrf = await accountRead<{ headerName: string; token: string }>('/auth/csrf')
   return decode<T>(await adminFetch(root + path, {
     method,
-    headers: { [csrf.headerName]: csrf.token, 'Content-Type': 'application/json' },
+    headers: { [csrf.headerName]: csrf.token, 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   }))
 }

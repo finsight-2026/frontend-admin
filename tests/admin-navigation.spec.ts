@@ -43,6 +43,37 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('filtered CRM drafts use a server preview rather than user IDs', async ({ page }) => {
+  await fixture(page, ['OPERATOR'])
+  await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: { items: [], page: 1, size: 20, total: 25 } }))
+  await page.route('**/api/v1/admin/campaigns/target-preview', (route) => route.fulfill({ json: {
+    previewId: targetUser, total: 25, eligible: 24, excluded: 1, expiresAt: '2026-11-14T23:59:00+09:00',
+  } }))
+  await page.route('**/api/v1/admin/contents?*', (route) => route.fulfill({ json: [
+    { revisionId: adminId, title: '점검 안내', revisionNo: 1 },
+  ] }))
+  await page.route('**/api/v1/admin/campaigns/from-target-preview', (route) => route.fulfill({
+    status: 201, json: { id: adminId },
+  }))
+  await page.goto('/admin/users?includeNoDiagnosis=true')
+  const preview = page.waitForRequest((request) => request.url().endsWith('/target-preview'))
+  await page.getByRole('button', { name: '필터 전체 CRM 대상 확인' }).click()
+  expect((await preview).postDataJSON()).toEqual({ includeNoDiagnosis: true })
+  await expect(page.getByText('검색 결과 25명 · 활성 계정 24명 · 제외 1명')).toBeVisible()
+  await page.getByRole('button', { name: '확정된 대상으로 CRM 초안 작성' }).click()
+  await expect(page).toHaveURL(/\/admin\/campaigns$/)
+  await expect(page.getByText('필터에서 확정한 활성 계정 24명')).toBeVisible()
+  await page.getByLabel('캠페인명').fill('필터 대상 CRM')
+  await page.getByRole('combobox', { name: '게시된 공지 버전' }).click()
+  await page.getByText('점검 안내 · v1', { exact: true }).click()
+  const save = page.waitForRequest((request) => request.url().endsWith('/from-target-preview'))
+  await page.getByRole('button', { name: '초안 저장' }).click()
+  const request = await save
+  expect(request.postDataJSON()).toEqual({ previewId: targetUser, name: '필터 대상 CRM', noticeRevisionId: adminId })
+  expect(request.headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/)
+  await expect(page.getByRole('button', { name: '초안 저장' })).toHaveCount(0)
+})
+
 test('selected users prefill a CRM draft without sending or saving', async ({ page }) => {
   const paths = await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {
