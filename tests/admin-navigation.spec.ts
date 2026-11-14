@@ -695,6 +695,30 @@ test('privacy can requeue an exhausted deletion using the same key after a lost 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
 
+test('audit finds denied downloads while keeping the selected target', async ({ page }) => {
+  await fixture(page, ['SUPER_ADMIN'])
+  await page.route('**/api/v1/admin/audit-logs?**', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    return route.fulfill({ json: { total: 1, items: [{
+      id: adminId, actorId: adminId, roles: ['OPERATOR'], targetType: 'JOB', targetId: targetUser,
+      action: query.has('action') ? 'EXPORT_DOWNLOAD_DENIED' : 'MASKED_USERS_EXPORT_DOWNLOADED',
+      result: query.get('result') ?? 'SUCCESS',
+      changes: query.has('action') ? { httpStatus: 404 } : { format: 'CSV' },
+      traceId: targetUser, createdAt: '2026-11-14T00:00:00Z',
+    }] } })
+  })
+  await page.goto('/admin/audit')
+  await expect(page.getByRole('cell', { name: '마스킹 사용자 CSV 다운로드' })).toBeVisible()
+  await page.getByLabel('대상 ID').fill(targetUser)
+  const request = page.waitForRequest((request) => new URL(request.url()).searchParams.get('action') === 'EXPORT_DOWNLOAD_DENIED')
+  await page.getByRole('button', { name: '다운로드 거부 조회' }).click()
+  const params = new URL((await request).url()).searchParams
+  expect(params.get('result')).toBe('FAILURE')
+  expect(params.get('targetId')).toBe(targetUser)
+  await expect(page.getByRole('cell', { name: '파일 다운로드 거부' })).toBeVisible()
+  await expect(page.getByRole('cell', { name: '실패' })).toBeVisible()
+})
+
 test('audit identifies administrator MFA recovery as a server console action', async ({ page }, testInfo) => {
   await fixture(page, ['SUPER_ADMIN'])
   await page.route('**/api/v1/admin/audit-logs?**', (route) => route.fulfill({ json: { total: 1, items: [{
