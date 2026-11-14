@@ -43,6 +43,29 @@ async function fixture(page: Page, permissions: string[], name = '테스트 관�
   return paths
 }
 
+test('password login opens the workspace and MFA accounts still receive a challenge', async ({ page }) => {
+  await fixture(page, ['SUPER_ADMIN'])
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/v1/admin/auth/login', (route) => {
+    const request = route.request().postDataJSON()
+    expect(request.passwordSessionSupported).toBe(true)
+    return route.fulfill({ json: request.email === 'password-only@example.test'
+      ? { admin: { id: adminId, name: '테스트 관리자' }, permissions: ['SUPER_ADMIN'] }
+      : { challengeId: adminId, expiresAt: '2026-11-15T00:05:00+09:00' } })
+  })
+  await page.route('**/api/v1/admin/auth/logout', (route) => route.fulfill({ status: 204 }))
+  await page.goto('/')
+  await page.getByLabel('이메일', { exact: true }).fill('password-only@example.test')
+  await page.getByLabel('비밀번호', { exact: true }).fill('ExamplePassword123!')
+  await page.getByRole('button', { name: '계속', exact: true }).click()
+  await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+  await page.getByRole('button', { name: '로그아웃' }).click()
+  await page.getByLabel('이메일', { exact: true }).fill('mfa@example.test')
+  await page.getByLabel('비밀번호', { exact: true }).fill('ExamplePassword123!')
+  await page.getByRole('button', { name: '계속', exact: true }).click()
+  await expect(page.getByLabel('인증 앱의 6자리 코드')).toBeVisible()
+})
+
 test('filtered user export sends the applied filters and opens its job', async ({ page }) => {
   await fixture(page, ['OPERATOR'])
   await page.route('**/api/v1/admin/users?*', (route) => route.fulfill({ json: {

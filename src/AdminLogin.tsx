@@ -180,7 +180,11 @@ export default function AdminLogin() {
           </Form>
         ) : (
           <Form form={credentials} layout="vertical" onFinish={(values) => submit(async () => {
-            setChallenge(await write<Challenge>('/login', { ...values, email: values.email.trim() }))
+            const result = await write<Challenge | Identity>('/login', {
+              ...values, email: values.email.trim(), passwordSessionSupported: true,
+            })
+            if ('challengeId' in result) setChallenge(result)
+            else setIdentity(result)
             credentials.resetFields(['password'])
           }, '이메일과 비밀번호를 확인해주세요.')}>
             <Form.Item name="email" label="이메일"
