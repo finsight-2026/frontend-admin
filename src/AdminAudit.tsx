@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 type Entry = {
   id: string; actorId: string; roles: string[]; action: string; targetType: string
   targetId: string; result: string; changes: { source?: string; [key: string]: unknown }; traceId: string; createdAt: string
+  targetRemoved?: boolean
 }
 type Filters = Partial<Record<'actorId' | 'action' | 'targetId' | 'result' | 'reason' | 'from' | 'to', string>>
 type Page = { items: Entry[]; total: number }
@@ -87,7 +88,10 @@ export default function AdminAudit() {
             { title: '시각 (KST)', dataIndex: 'createdAt', render: (value: string) => date.format(new Date(value)) },
             { title: '수행 주체', render: (_, entry) => entry.changes.source === 'SERVER_CONSOLE' ? '서버 콘솔' : entry.actorId },
             { title: '작업', dataIndex: 'action', render: (value: string) => exportActions[value] ?? value },
-            { title: '대상', render: (_, entry) => entry.targetType + ' · ' + entry.targetId },
+            { title: '대상', render: (_, entry) => <Space wrap>
+              <span>{entry.targetType} · {entry.targetId}</span>
+              {entry.targetRemoved && <Tag>제거된 대상</Tag>}
+            </Space> },
             { title: '결과', dataIndex: 'result', render: (value: string) => <Tag>{results[value] ?? value}</Tag> },
             { title: '추적 ID', dataIndex: 'traceId' },
           ]} />

@@ -695,6 +695,21 @@ test('privacy can requeue an exhausted deletion using the same key after a lost 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
 
+test('audit identifies a removed user and keeps the original target ID', async ({ page }) => {
+  await fixture(page, ['PRIVACY'])
+  await page.route((url) => url.pathname === '/api/v1/admin/audit-logs', (route) => route.fulfill({ json: {
+    total: 1, items: [{
+      id: adminId, actorId: adminId, roles: ['PRIVACY'], targetType: 'APP_USER', targetId: targetUser,
+      action: 'PII_VIEWED', result: 'SUCCESS', changes: {}, targetRemoved: true,
+      traceId: adminId, createdAt: '2026-11-14T00:00:00Z',
+    }],
+  } }))
+  await page.goto('/admin/audit')
+  const target = page.getByRole('cell').filter({ hasText: targetUser })
+  await expect(target.getByText('제거된 대상')).toBeVisible()
+  await expect(target).toContainText(targetUser)
+})
+
 test('audit finds denied downloads while keeping the selected target', async ({ page }) => {
   await fixture(page, ['SUPER_ADMIN'])
   await page.route('**/api/v1/admin/audit-logs?**', (route) => {
