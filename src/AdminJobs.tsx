@@ -66,6 +66,7 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
   const [filters, setFilters] = useState<Filters>({})
   const [page, setPage] = useState(1)
   const [refresh, setRefresh] = useState(0)
+  const [listRefresh, setListRefresh] = useState(0)
   const [data, setData] = useState<Page>()
   const [error, setError] = useState<string>()
   const [selected, setSelected] = useState(jobId)
@@ -94,12 +95,13 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
       if (!abort.signal.aborted) setError(failure.message)
     })
     return () => abort.abort()
-  }, [filters, page, refresh])
+  }, [filters, page, refresh, listRefresh])
 
   useEffect(() => {
     if (!selected) return
     const abort = new AbortController()
     let timer: number | undefined
+    let wasPending = false
     async function load() {
       try {
         const result = await read<Job>(root + '/' + selected, abort.signal)
@@ -107,7 +109,10 @@ export default function AdminJobs({ operator, privacy, analyst, jobId }: {
         setDetail(result)
         if (['DASHBOARD_AGGREGATE', 'CONTENT_PERFORMANCE', 'MASKED_USERS'].includes(result.kind) &&
           ['QUEUED', 'RUNNING'].includes(result.status)) {
+          wasPending = true
           timer = window.setTimeout(() => void load(), 5_000)
+        } else if (wasPending) {
+          setListRefresh((value) => value + 1)
         }
       } catch (failure) {
         if (!abort.signal.aborted) setDetailError(failure instanceof Error ? failure.message : '작업을 불러오지 못했습니다.')

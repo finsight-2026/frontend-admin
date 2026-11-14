@@ -513,13 +513,17 @@ test('job detail exposes the CSV download when a queued export completes', async
   await fixture(page, ['OPERATOR'])
   let completed = false
   let reads = 0
+  const job = () => ({
+    id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS',
+    status: completed ? 'COMPLETED' : 'QUEUED', processed: completed ? 1 : 0,
+    total: 1, retryCount: 0, overdue: false,
+  })
+  await page.route('**/api/v1/admin/jobs?*', (route) => route.fulfill({
+    json: { items: [job()], page: 1, size: 20, total: 1 },
+  }))
   await page.route('**/api/v1/admin/jobs/' + adminId, (route) => {
     reads++
-    return route.fulfill({ json: {
-      id: adminId, kind: 'MASKED_USERS', scope: 'MASKED_USERS',
-      status: completed ? 'COMPLETED' : 'QUEUED', processed: completed ? 1 : 0,
-      total: 1, retryCount: 0, overdue: false,
-    } })
+    return route.fulfill({ json: job() })
   })
   await page.goto('/admin/jobs?id=' + adminId)
   const dialog = page.getByRole('dialog', { name: '작업 상세' })
@@ -529,9 +533,14 @@ test('job detail exposes the CSV download when a queued export completes', async
   completed = true
   await page.clock.runFor(5_100)
   await expect(download).toBeVisible()
+  const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: adminId, exact: true }) })
+  await expect(row).toContainText('완료')
+  await expect(row).toContainText('1 / 1')
   const completedReads = reads
   await page.clock.runFor(15_000)
   expect(reads).toBe(completedReads)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
 })
 
 test('job monitor retries only eligible failures and reuses the key after an uncertain response', async ({ page }, testInfo) => {
