@@ -10,7 +10,11 @@ case "$environment" in
 esac
 
 cd "/opt/finsight/$environment"
-exec 9>.release/deploy.lock
+if [[ ! -e .release/deploy.lock ]]; then
+    # The root-run configuration and the CI deployment must share this lock.
+    runuser -u finsight-deploy -- touch .release/deploy.lock
+fi
+exec 9<>.release/deploy.lock
 flock -w 120 9
 
 export FINSIGHT_LOCAL_PORT=$port FINSIGHT_BACKEND_MEMORY=$memory
