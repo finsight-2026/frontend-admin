@@ -16,6 +16,8 @@ export default function App() {
           colorPrimary: '#C8FF00',
           colorTextLightSolid: '#000000',
           colorBgBase: '#0F1112',
+          colorBgContainer: '#171A13',
+          colorBgElevated: '#1D2116',
           colorBorder: '#3C3D41',
           colorError: '#C13515',
           fontFamily: 'Pretendard, system-ui, sans-serif',

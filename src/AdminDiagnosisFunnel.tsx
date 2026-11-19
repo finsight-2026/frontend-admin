@@ -1,5 +1,5 @@
 import { adminFetch } from './adminFetch'
-import { Alert, Button, Card, Form, Input, Segmented, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Form, Input, Progress, Row, Segmented, Space, Table, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 
 type Filter = { from?: string; to?: string }
@@ -67,7 +67,9 @@ export default function AdminDiagnosisFunnel() {
     cumulative: rate(step.count, data.entries),
   })) : []
 
-  return <Card id="diagnosis-funnel" title="진단 여정 퍼널">
+  return <Card id="diagnosis-funnel" title={
+    <Typography.Title level={2} className="admin-analytics-title">진단 퍼널 및 설문 문항 이탈 분석</Typography.Title>
+  }>
     <Space orientation="vertical" style={{ display: 'flex' }}>
       {error && <Alert type="error" title={error} />}
       <Form<Filter> layout="vertical" onFinish={(values) => {
@@ -85,6 +87,20 @@ export default function AdminDiagnosisFunnel() {
         <span>{data.from} ~ {data.to} · 시작한 시도 {data.started}건</span>
         {data.provisional > 0 && <Tag color="gold">24시간 관측 중 {data.provisional}건</Tag>}
       </Space>}
+      {data && <Row gutter={[12, 12]}>
+        {steps.map((step) => <Col xs={12} sm={8} xl={4} key={step.label}>
+          <Card size="small">
+            <Typography.Text type="secondary">{step.label}</Typography.Text>
+            <div><Typography.Text strong>{step.count.toLocaleString('ko-KR')}건</Typography.Text></div>
+            <Progress
+              percent={data.entries ? step.count / data.entries * 100 : 0}
+              showInfo={false}
+              strokeColor="var(--Primary)"
+              aria-hidden="true"
+            />
+          </Card>
+        </Col>)}
+      </Row>}
       <Table rowKey="label" dataSource={steps} loading={loading} pagination={false} scroll={{ x: 480 }}
         columns={[
           { title: '단계', dataIndex: 'label' },

@@ -192,7 +192,7 @@ export default function AdminUsers({ actorId, operator, supervisor, privacy, use
           <Button onClick={() => selectUser()}>목록으로</Button>
           {!detail && !error && <Spin />}
           {detail && <>
-            <Descriptions bordered column={1} items={[
+            <Descriptions bordered size="small" column={{ xs: 1, sm: 1, md: 2 }} items={[
               { key: 'id', label: '사용자 ID', children: detail.user.id },
               { key: 'email', label: '이메일', children: detail.user.maskedEmail },
               { key: 'status', label: '계정 상태', children: statuses[detail.user.status] },

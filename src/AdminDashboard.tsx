@@ -95,7 +95,8 @@ function DashboardContent({ analyst, navigate }: { analyst: boolean; navigate: (
   }
 
   return (
-    <Card title="대시보드" extra={<Button onClick={() => void summary.refetch()} loading={summary.isFetching}>새로고침</Button>}>
+    <Card title={<Typography.Title level={2} className="admin-analytics-title">CRM &amp; 사용자 분석 대시보드</Typography.Title>}
+      extra={<Button onClick={() => void summary.refetch()} loading={summary.isFetching}>새로고침</Button>}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Button type="link" onClick={() => navigate('/admin/funnel')}>진단 여정 퍼널 보기</Button>
         <Form<Filters> layout="vertical" onFinish={setFilters}>
@@ -165,20 +166,17 @@ function DashboardContent({ analyst, navigate }: { analyst: boolean; navigate: (
               : '인증된 앱 포그라운드 활동을 아직 관측하지 못했습니다.'}
           </Typography.Text>
           <Row gutter={[12, 12]}>
-            <Col xs={24} lg={12}><Card size="small" title="YFSI 점수 분포">
-              {data.scoreDistribution.map(({ lower, count }) => (
-                <DistributionBar key={lower} label={lower === 90 ? '90~100점' : `${lower}점 이상~${lower + 10}점 미만`}
-                  count={count} total={totals.diagnosedUsers} />
-              ))}
+            <Col xs={24} xl={15}><Card size="small" title="가입 및 진단 일별 추이"><DailyChart days={data.daily} /></Card></Col>
+            <Col xs={24} xl={9}><Card size="small" title="YFSI 점수 분포">
+              <ScoreDistribution bins={data.scoreDistribution} total={totals.diagnosedUsers} />
             </Card></Col>
-            <Col xs={24} lg={12}><Card size="small" title="대표 유형 분포">
+            <Col xs={24} xl={15}><SignupFunnelTable funnel={data.signupFunnel} /></Col>
+            <Col xs={24} xl={9}><Card size="small" title="대표 유형 분포">
               {data.typeDistribution.map(({ type, count }) => (
                 <DistributionBar key={type} label={pressureNames[type]} count={count} total={totals.diagnosedUsers} />
               ))}
             </Card></Col>
           </Row>
-          <Card size="small" title="가입 및 진단 일별 추이"><DailyChart days={data.daily} /></Card>
-          <SignupFunnelTable funnel={data.signupFunnel} />
           <CohortTable cells={data.cohorts} />
           <Table<Daily> title={() => '일별 수치'} rowKey="date" dataSource={data.daily} scroll={{ x: 460 }}
             pagination={{ defaultPageSize: 10, showSizeChanger: false }} columns={[
@@ -279,6 +277,25 @@ function DailyChart({ days }: { days: Daily[] }) {
 function DistributionBar({ label, count, total }: { label: string; count: number; total: number }) {
   return <div>
     <Typography.Text>{label} · {numberFormat.format(count)}명 · {percent(count, total)}</Typography.Text>
-    <Progress showInfo={false} percent={total ? count / total * 100 : 0} />
+    <Progress showInfo={false} strokeColor="var(--Primary)" percent={total ? count / total * 100 : 0} />
   </div>
+}
+
+function ScoreDistribution({ bins, total }: { bins: Dashboard['scoreDistribution']; total: number }) {
+  if (!bins.length) return <Typography.Text type="secondary">—</Typography.Text>
+  const peak = Math.max(...bins.map((bin) => bin.count))
+  return <ol className="admin-score-chart" style={{ gridTemplateColumns: `repeat(${bins.length}, minmax(0, 1fr))` }}>
+    {bins.map(({ lower, count }) => {
+      const range = lower === 90 ? '90~100점' : `${lower}점 이상~${lower + 10}점 미만`
+      const description = `${range} · ${numberFormat.format(count)}명 · ${percent(count, total)}`
+      return <li key={lower} aria-label={description} title={description}>
+        <div className="admin-score-chart-column" aria-hidden="true">
+          <span>{numberFormat.format(count)}</span>
+          <div className={count > 0 && count === peak ? 'admin-score-chart-peak' : undefined}
+            style={{ height: `${peak ? count / peak * 100 : 0}%` }} />
+        </div>
+        <span aria-hidden="true">{lower}</span>
+      </li>
+    })}
+  </ol>
 }

@@ -123,9 +123,43 @@ body {
 }
 
 .admin-menu a[aria-current="page"] {
-  background: var(--gray_800);
-  color: var(--lime_100);
+  background: var(--Primary);
+  color: var(--gray_1000);
   font-weight: 600;
+}
+
+.admin-analytics-title.ant-typography {
+  margin: 0;
+  font: var(--display_sb_28);
+}
+
+.admin-score-chart {
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 1.25rem 0 0;
+  text-align: center;
+  color: var(--gray_300);
+  font: var(--label_r_12);
+}
+
+.admin-score-chart-column {
+  height: 8rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--gray_750);
+}
+
+.admin-score-chart-column div {
+  flex-shrink: 1;
+  background: var(--NeonLime_900);
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+
+.admin-score-chart-column .admin-score-chart-peak {
+  background: var(--Primary);
 }
 
 .admin-menu-toggle.ant-btn {
